@@ -80,12 +80,12 @@ MOP stands for ```Modular Protocol``` as it is designed to be as modular as poss
 | --- | --- | --- | --- | --- |
 | ```-p```, ```--port``` | Integer | 8000 | No | Sets the port for MOP to bind to |
 | ```--host``` | String | 127.0.0.1 | No | Sets the interface for MOP to bind to |
-| ```-c```, ```--cmd``` | String | "" | Yes | The command for MOP to wrap with either pty or pipes [See this warning](#possible-rce) |
+| ```-c```, ```--cmd``` | String | None | Yes | The command for MOP to wrap with either pty or pipes [See this warning](#possible-rce) |
 | ```-r```, ```--rate-limit``` | Flag | False | No | Enables rate limits for possible abusive endpoints (/mop/write, /mop/init, etc.) |
 | ```--cwd``` | String | Current working directory where MOP was started | No | Sets the CWD for the sessions to run in |
 | ```--ssl``` | Flag | False | No | Enables SSL |
 | ```-w```, ```--workers``` | Integer | 1 | No | Sets the amount of FastAPI workers to spawn |
-| ```--force-port``` | Flag | False | No | Disables interactive prompts when another process is binded to the port FastAPI wants to use and kills the process using the port without warning [See this warning](#the-dangers-of-stealing-a-port) |
+| ```--force-port``` | Flag | False | No | Disables interactive prompts when another process is bound to the port FastAPI wants to use and kills the process using the port without warning [See this warning](#the-dangers-of-stealing-a-port) |
 | ```--no-pub-process``` | Flag | False | No | Prevents automatic creation of a public session |
 
 ## Security and Warnings
@@ -123,11 +123,18 @@ Each Core plugin has its purpose
 
     Persisting sessions across Server restarts
 
+    Binds to localhost:9000.
+
+    > [!WARNING]
+    > DO NOT EXPOSE PUBLICLY
+
     Stands for *Archived Terminal and Task Image Cache*
 
 - **Mat**
 
     The web UI
+
+    Binds to localhost:8080
 
     Stands for *Modular Application Terminal*
 

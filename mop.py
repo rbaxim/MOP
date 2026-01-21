@@ -157,7 +157,7 @@ parser.add_argument("-r", "--rate-limit", default=False, action="store_true", he
 parser.add_argument("--cwd", default=os.getcwd(), type=str, help="Sets the CWD for the sessions to run in")
 parser.add_argument("--ssl", default=False, action="store_true", help="Enables SSL")
 parser.add_argument("-w", "--workers", default=1, type=int, help="Sets the amount of FastAPI workers to spawn")
-parser.add_argument("--force-port", default=False, action="store_true", help="Disables interactive prompts when another process is binded to the port FastAPI wants to use and kills the process using the port without warning")
+parser.add_argument("--force-port", default=False, action="store_true", help="Disables interactive prompts when another process is bound to the port FastAPI wants to use and kills the process using the port without warning")
 parser.add_argument("--no-pub-process", default=False, action="store_true", help="Prevents automatic creation of a public session")
 args = parser.parse_args()
 
