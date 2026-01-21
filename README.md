@@ -2,6 +2,8 @@
 
 ![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![Endpoint Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Frbaxim%2FMOP%2Frefs%2Fheads%2Fmain%2Fversion_badge.json)
+![GitHub repo size](https://img.shields.io/github/repo-size/rbaxim/https%3A%2F%2Fgithub.com%2Frbaxim%2FMOP)
 
 A stdio ↔ HTTP(s) bridge: runs subprocess-backed services and exposes them via a small FastAPI server.
 
