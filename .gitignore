@@ -10,3 +10,4 @@ moppy/pepper
 **/__pycache__/
 **/.mypy_cache/
 **/.pytest_cache/
+pat.txt
