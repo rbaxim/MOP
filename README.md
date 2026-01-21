@@ -67,13 +67,14 @@ MOP stands for ```Modular Protocol``` as it is designed to be as modular as poss
 | PTY | Full Terminal output (only returns ANSI that contain color/style data) Great for interactive sessions | Spawns a entire terminal. Much slower than Piping |
 | Pipes | Efficent and fast. Great when you are with limited resources | Extremely buggy, doesn't give full tty output, and does not work for interactive sessions |
 
-### Security / Warnings
+- **Windows Echo Issues**: The winpty module for python does not provide a easy way to disable echoing in terminals (Mirroring stdin to stdout)
+
+### Security
 
 > [!WARNING]
 > **Remote Code Execution Risk**: MOP bridges stdin/stdout to HTTP(s).
 > Exposing this server to the open internet without a firewall or
 > authentication is extremely dangerous.
-> **Windows Echo Issues**: The winpty module for python does not provide a easy way to disable echoing in terminals (Mirroring stdin to stdout)
 
 ### Repo & dev
 
