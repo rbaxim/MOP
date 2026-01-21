@@ -1,9 +1,9 @@
-name: Mypy Check
+name: Type Checks
 
 on: [push, pull_request]
 
 jobs:
-  typecheck:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -13,14 +13,38 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install Linters
+        run: |
+          pip install ruff flake8
+
+      - name: Run Ruff
+        # Ruff catches bugs and enforces style
+        run: ruff check .
+
+      - name: Run Flake8
+        # Flake8 provides a secondary layer of linting
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  typecheck:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # This installs everything in your freeze, including types-aiofiles
           pip install -r requirements.txt
           pip install mypy
 
       - name: Run Mypy
-        # We add --install-types and --non-interactive as a double-check
         run: mypy . --explicit-package-bases --install-types --non-interactive
