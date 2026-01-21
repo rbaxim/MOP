@@ -17,8 +17,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi uvicorn aiohttp psutil mypy
-          # Add any other dependencies your moppy/ scripts import
+          # This installs everything in your freeze, including types-aiofiles
+          pip install -r requirements.txt
+          pip install mypy
 
       - name: Run Mypy
-        run: mypy .
+        # We add --install-types and --non-interactive as a double-check
+        run: mypy . --explicit-package-bases --install-types --non-interactive

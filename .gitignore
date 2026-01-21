@@ -11,3 +11,4 @@ moppy/pepper
 **/.mypy_cache/
 **/.pytest_cache/
 pat.txt
+*.ignore
