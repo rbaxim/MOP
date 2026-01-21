@@ -158,7 +158,7 @@ parser.add_argument("--cwd", default=os.getcwd(), type=str, help="Sets the CWD f
 parser.add_argument("--ssl", default=False, action="store_true", help="Enables SSL")
 parser.add_argument("-w", "--workers", default=1, type=int, help="Sets the amount of FastAPI workers to spawn")
 parser.add_argument("--force-port", default=False, action="store_true", help="Disables interactive prompts when another process is binded to the port FastAPI wants to use and kills the process using the port without warning")
-parser.add_argument("--no-pub-process", default=False, action="store_true", help="Disables public session from being created")
+parser.add_argument("--no-pub-process", default=False, action="store_true", help="Prevents automatic creation of a public session")
 args = parser.parse_args()
 
 def steal_port(port):
