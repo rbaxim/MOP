@@ -329,7 +329,6 @@ def is_uvicorn():
     return False
 
 async def plugin_call(name, method="GET", content=None, path=""):
-    global core_plugins
     if content is None:
         content = {}
     if name not in core_plugins.keys():
