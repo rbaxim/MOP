@@ -1,0 +1,12 @@
+moppy/certs/*.pem
+.venv*
+moppy/attic/*.attic
+moppy/auth/*.pem
+moppy/logs/*.log
+moppy/pepper
+*.log
+/*.py
+!/mop.py
+**/__pycache__/
+**/.mypy_cache/
+**/.pytest_cache/

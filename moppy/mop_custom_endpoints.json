@@ -1,0 +1,10 @@
+{
+    "endpoints": [
+        {
+            "name": "hello_test",
+            "method": "GET",
+            "path": "/mop/hello",
+            "runtime": "python -u tests/running_tests/test.py"
+        }
+    ]
+}

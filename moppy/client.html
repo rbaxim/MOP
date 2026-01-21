@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head id="head">
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>MOP Dynamic HTML Client</title>
+    </head>
+    <body>
+        <div id="root"></div>
+        <script>
+            const API_BASE = '/mop';
+            let key = ""
+            const path = window.location.pathname.split('/');
+            let isInternalNavigation = false;
+            let updateInterval = null;
+            path.splice(0, 2);
+            async function fetchServerStatus() {
+                try {
+                    const res = await fetch(`${API_BASE}/process`);
+                    if (res.ok) return true;
+                    if (res.status === 428) return true;
+                } catch (err) {
+                    return false;
+                }
+            }
+
+            let input = "";
+            if (path.length > 0) {
+                input = "/" + path.join('/') + "";
+            }
+            console.log(input);
+            async function initSession() {
+                try {
+                    if (sessionStorage.getItem('mop_key')) {
+                        key = sessionStorage.getItem('mop_key');
+                        return;
+                    }
+                    const res = await fetch(`${API_BASE}/init`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ "echo": false })
+                    });
+                    const data = await res.json();
+                    key = data.key;
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+
+            async function read() {
+                try {
+                    const res = await fetch(`${API_BASE}/read`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: key })
+                    });
+                    const data = await res.json();
+                    console.log(data);
+                    return data;
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+
+            async function write(data) {
+                try {
+                    await fetch(`${API_BASE}/write`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: key, stdin: data })
+                    });
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+
+            async function request(path, data, output=false) {
+                try {
+                    write(`${path}+${data}`);
+                    if (output) {
+                        return await read();
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+
+            async function endSession() {
+                const url = `${API_BASE}/end`;
+                const payload = JSON.stringify({ key: key });
+
+                if (navigator.sendBeacon) {
+                    // Blob ensures the server sees 'application/json'
+                    const blob = new Blob([payload], { type: 'application/json' });
+                    navigator.sendBeacon(url, blob);
+                } else {
+                    await fetch(url, { method: 'POST', body: payload, keepalive: true });
+                }
+                sessionStorage.removeItem('mop_key');
+            }
+
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            async function getLastOutput(key) {
+                try {
+                    const data = await read();
+                    const stdout = data.stdout || [];
+                    if (stdout.length === 0) return "";   // nothing yet
+
+                    // Return the last chunk
+                    return stdout[stdout.length - 1];
+                } catch (err) {
+                    console.error("Error fetching stdout:", err);
+                    return "";
+                }
+            }
+
+            window.addEventListener('beforeunload', (event) => {
+                sessionStorage.setItem('mop_key', key);
+                clearInterval(updateInterval);
+                if (key && !isInternalNavigation) {
+                    endSession();
+                }
+            });
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden' && !isInternalNavigation) {
+                    sessionStorage.setItem('mop_key', key);
+                }
+            });
+
+
+            async function updateHTML(path = "/") {
+                const root = document.getElementById('root');
+                const head = document.getElementById('head');
+                let last_output = ""
+                let new_head = ""
+                let new_body = ""
+                await write("head" + input) // Request the head
+                new_head = await getLastOutput(key);
+                await sleep(100);
+                head.innerHTML = new_head;
+                await write("body" + input) // Request the body
+                new_body = await getLastOutput(key);
+                root.innerHTML = new_body;
+
+            }
+
+            window.addEventListener('load', async (event) => {
+                if (!(await fetchServerStatus())) {
+                    alert('MOP server is not running. Please try again later.');
+                    return;
+                }
+                await initSession();
+                await write("delay" + input)
+                await sleep(100);
+                delay = await getLastOutput(key) || 1000;
+                updateHTML(); // Prevent User feedback delay
+                updateInterval = setInterval(updateHTML, delay);
+            });
+
+            document.addEventListener('click', (event) => {
+                    const link = event.target.closest('a');
+                    if (link) {
+                        isInternalNavigation = true;
+                        setTimeout(() => {
+                            isInternalNavigation = false;
+                        }, 1000);
+                    }
+            });
+        </script>
+    </body>
+</html>
