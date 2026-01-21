@@ -7,7 +7,7 @@
 
 A stdio ↔ HTTP(s) bridge: runs subprocess-backed services and exposes them via a small FastAPI server.
 
-MOP stands for ```Modular Protocol``` as it is designed to be as modular as possible.
+MOP stands for *Modular Protocol* as it is designed to be as modular as possible.
 
 ## Highlights
 
