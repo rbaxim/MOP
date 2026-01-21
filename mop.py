@@ -150,15 +150,15 @@ import moppy.hints as hints # pyright: ignore[reportMissingImports]  # noqa: E40
 colorama_init()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-p", "--port", type=int, default=8000)
-parser.add_argument("--host", type=str, default="127.0.0.1") # arg parser is weird and wont let me use -h
-parser.add_argument("-c", "--cmd", type=str, default="echo Hello World!", required=True)
-parser.add_argument("-r", "--rate-limit", default=False, action="store_true")
-parser.add_argument("--cwd", default=os.getcwd(), type=str)
-parser.add_argument("--ssl", default=False, action="store_true")
-parser.add_argument("-w", "--workers", default=1, type=int)
-parser.add_argument("--force-port", default=False, action="store_true")
-parser.add_argument("--no-pub-process", default=False, action="store_true")
+parser.add_argument("-p", "--port", type=int, default=8000, help="Sets the port for MOP to bind to")
+parser.add_argument("--host", type=str, default="127.0.0.1", help="Sets the interface for MOP to bind to") # arg parser is weird and wont let me use -h
+parser.add_argument("-c", "--cmd", type=str, default="echo Hello World!", required=True, help="The command for MOP to wrap with either pty or pipes")
+parser.add_argument("-r", "--rate-limit", default=False, action="store_true", help="Enables rate limits")
+parser.add_argument("--cwd", default=os.getcwd(), type=str, help="Sets the CWD for the sessions to run in")
+parser.add_argument("--ssl", default=False, action="store_true", help="Enables SSL")
+parser.add_argument("-w", "--workers", default=1, type=int, help="Sets the amount of FastAPI workers to spawn")
+parser.add_argument("--force-port", default=False, action="store_true", help="Disables interactive prompts when another process is binded to the port FastAPI wants to use and kills the process using the port without warning")
+parser.add_argument("--no-pub-process", default=False, action="store_true", help="Disables public session from spawning after first session was created")
 args = parser.parse_args()
 
 def steal_port(port):

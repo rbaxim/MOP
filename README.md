@@ -14,7 +14,7 @@ MOP stands for ```Modular Protocol``` as it is designed to be as modular as poss
 - Plugin folder: ./moppy/plugins — drop-in core plugins and manifest-driven services.
 - Built‑in simple Web UI: index, session.
 - SSL support (use ./moppy/certs or ./moppy/ssl_certs.py to generate certs).
-- Lightweight: uses fastapi, uvicorn, aiohttp, psutil, etc. (mop.py auto-checks deps at boot).
+- Lightweight: uses FastAPI, uvicorn, aiohttp, psutil, etc. (mop.py auto-checks deps at boot).
 
 ### Quick start (Instruction kit)
 
@@ -70,7 +70,23 @@ MOP stands for ```Modular Protocol``` as it is designed to be as modular as poss
 | PTY | Full Terminal output (only returns ANSI that contain color/style data) Great for interactive sessions | Spawns a entire terminal. Much slower than Piping |
 | Pipes | Efficent and fast. Great when you are with limited resources | Extremely buggy, doesn't give full tty output, and does not work for interactive sessions |
 
+- Use the public session to reduce strain on the server. *Would you rather spawn 100 processes for 100 clients or spawn 1 process and every client connects to it*
+
 - **Windows Echo Issues**: The winpty module for python does not provide a easy way to disable echoing in terminals (Mirroring stdin to stdout)
+
+### Arguments
+
+| Argument | Type | Default | Is Required | Description |
+| --- | --- | --- | --- | --- |
+| ```-p```, ```--port``` | Integer | 8000 | No | Sets the port for MOP to bind to |
+| ```--host``` | String | 127.0.0.1 | No | Sets the interface for MOP to bind to |
+| ```-c```, ```--cmd``` | String | None | Yes | The command for MOP to wrap with either pty or pipes [See this warning](#security) |
+| ```-r```, ```--rate-limit``` | Flag | False | No | Enables rate limits |
+| ```--cwd``` | String | Current CWD MOP was ran in | No | Sets the CWD for the sessions to run in |
+| ```--ssl``` | Flag | None | No | Enables SSL |
+| ```-w```, ```--workers``` | Integer | 1 | False | Sets the amount of FastAPI workers to spawn |
+| ```--force-port``` | Flag | None | No | Disables interactive prompts when another process is binded to the port FastAPI wants to use and kills the process using the port without warning |
+| ```--no-pub-process``` | Flag | None | No | Disables public session from spawning after first session was created |
 
 ### Security
 
