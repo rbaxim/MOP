@@ -12,3 +12,4 @@ moppy/pepper
 **/.pytest_cache/
 pat.txt
 *.ignore
+gpush.sh
