@@ -81,7 +81,7 @@ MOP stands for ```Modular Protocol``` as it is designed to be as modular as poss
 | ```-p```, ```--port``` | Integer | 8000 | No | Sets the port for MOP to bind to |
 | ```--host``` | String | 127.0.0.1 | No | Sets the interface for MOP to bind to |
 | ```-c```, ```--cmd``` | String | None | Yes | The command for MOP to wrap with either pty or pipes [See this warning](#possible-rce) |
-| ```-r```, ```--rate-limit``` | Flag | False | No | Enables rate limits for possible abusive endpoints (/mop/write, /mop/init, etc.) |
+| ```-r```, ```--rate-limit``` | Flag | False | No | Enables rate limits for possible abusive endpoints (```/mop/write```, ```/mop/init```, etc.) |
 | ```--cwd``` | String | Current working directory where MOP was started | No | Sets the CWD for the sessions to run in |
 | ```--ssl``` | Flag | False | No | Enables SSL |
 | ```-w```, ```--workers``` | Integer | 1 | No | Sets the amount of FastAPI workers to spawn |
@@ -114,6 +114,26 @@ MOP stands for ```Modular Protocol``` as it is designed to be as modular as poss
 - Create custom endpoints at [./moppy/mop_custom_endpoints.json](./moppy/mop_custom_endpoints.json) with any programming language.
 
 - Add custom plugins at [./moppy/plugins](./moppy/plugins/)
+
+### 2 API Endpoints. Same Backend
+
+- This project provides 2 verisons of the api
+
+    The basic one (```/mop```) and the advanced one (```/mop/power```)
+
+- The basic endpoints
+
+    These endpoints (```/mop/init```,```/mop/read```, ```/mop/end```, etc.) are poll-based.
+
+- The advnaced endpoints
+
+    These endpoints located at ```/mop/power``` are advanced and slightly harder to use.
+
+    But they are often more faster than the poll-based ones
+
+    - SSE endpoint: ```/mop/power/stream/read```
+
+    - Websocket endpoint: ```/mop/power/sock/{key}```
 
 ### Core Plugins
 
