@@ -94,8 +94,8 @@ MOP stands for ```Modular Protocol``` as it is designed to be as modular as poss
 > **Remote Code Execution Risk**: MOP bridges stdin/stdout to HTTP(s).
 > Exposing this server to the open internet without a firewall or
 > authentication is extremely dangerous.
-
-[!WARNING]
+>
+>[!WARNING]
 > **Forcing/Stealing a port**: This can terminate unexpected processes
 > and should be used carefully and wisely. Only use for automation.
 
