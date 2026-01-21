@@ -80,13 +80,13 @@ MOP stands for ```Modular Protocol``` as it is designed to be as modular as poss
 | --- | --- | --- | --- | --- |
 | ```-p```, ```--port``` | Integer | 8000 | No | Sets the port for MOP to bind to |
 | ```--host``` | String | 127.0.0.1 | No | Sets the interface for MOP to bind to |
-| ```-c```, ```--cmd``` | String | None | Yes | The command for MOP to wrap with either pty or pipes [See this warning](#security) |
-| ```-r```, ```--rate-limit``` | Flag | False | No | Enables rate limits |
+| ```-c```, ```--cmd``` | String | False | Yes | The command for MOP to wrap with either pty or pipes [See this warning](#security) |
+| ```-r```, ```--rate-limit``` | Flag | False | No | Enables rate limits for possible abusive endpoints (/mop/write, /mop/init, etc.) |
 | ```--cwd``` | String | Current CWD MOP was ran in | No | Sets the CWD for the sessions to run in |
-| ```--ssl``` | Flag | None | No | Enables SSL |
-| ```-w```, ```--workers``` | Integer | 1 | False | Sets the amount of FastAPI workers to spawn |
-| ```--force-port``` | Flag | None | No | Disables interactive prompts when another process is binded to the port FastAPI wants to use and kills the process using the port without warning |
-| ```--no-pub-process``` | Flag | None | No | Disables public session from spawning after first session was created |
+| ```--ssl``` | Flag | False | No | Enables SSL |
+| ```-w```, ```--workers``` | Integer | 1 | No | Sets the amount of FastAPI workers to spawn |
+| ```--force-port``` | Flag | False | No | Disables interactive prompts when another process is binded to the port FastAPI wants to use and kills the process using the port without warning |
+| ```--no-pub-process``` | Flag | False | No | Disables public session from being created |
 
 ### Security
 
@@ -94,6 +94,9 @@ MOP stands for ```Modular Protocol``` as it is designed to be as modular as poss
 > **Remote Code Execution Risk**: MOP bridges stdin/stdout to HTTP(s).
 > Exposing this server to the open internet without a firewall or
 > authentication is extremely dangerous.
+> [!WARNING]
+> **Forcing/Stealing a port**: This can terminate unexpected processes
+> and should be used carefully and wisely. Only use for automation.
 
 ### Repo & dev
 
