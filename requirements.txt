@@ -30,6 +30,7 @@ pydantic==2.12.5
 pydantic-core==2.41.5
 slowapi==0.1.9
 starlette==0.50.0
+types-aiofiles==25.1.0.20251011
 typing-extensions==4.15.0
 typing-inspection==0.4.2
 uvicorn==0.40.0
