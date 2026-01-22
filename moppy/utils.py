@@ -1,3 +1,6 @@
+# Copyright 2026 rbaxim
+# Licensed under the Apache License, Version 2.0
+# See LICENSE file in the project root for details.
 import aiohttp # pyright: ignore[reportMissingImports]
 import ssl
 import aiofiles # pyright: ignore[reportMissingModuleSource]

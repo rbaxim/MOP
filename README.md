@@ -102,7 +102,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
 - The server exposes APIs under /mop/*. Use the Web UI for an interactive session.
 - Plugins: place plugins and manifest in ./moppy/plugins. The server loads core plugins from that folder.
-- Choose either to use Pipes or PTY as the method for doing terminal/input output. (Default: PTY)
+- Choose either to use Pipes or PTY as the method for terminal/input output. (Default: PTY)
 
 | Method | Pros | Cons |
 | --- | --- | --- |
@@ -209,6 +209,8 @@ please include visible credit (README, documentation, or UI)
 linking back to this repository.
 
 This is not legally required by the license, but is appreciated.
+
+- See [NOTICE](NOTICE).
 
 ## License
 
