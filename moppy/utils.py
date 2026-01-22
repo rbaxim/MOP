@@ -53,7 +53,7 @@ async def fetch_backend(path: str, method="GET", body=None, headers=None, port=8
 
     for scheme, url in urls:
         try:
-            async with session.request(
+            async with session.request( # pyright: ignore[reportOptionalMemberAccess]
                 method,
                 url,
                 data=body,

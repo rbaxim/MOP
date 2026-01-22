@@ -121,6 +121,7 @@ if not is_frozen() and __name__ == "__main__":
         "aiohttp",
         "base91",
         "aiofiles",
+        "types-aiofiles"
     ]
     
     if sys.platform != "win32":
