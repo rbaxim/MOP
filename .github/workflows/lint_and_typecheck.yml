@@ -43,4 +43,4 @@ jobs:
           uv venv
           uv pip install -r requirements.txt
           uv pip install mypy
-          uv run mypy . --explicit-package-bases --ignore-missing-imports --non-interactive
+          uv run mypy . --explicit-package-bases --ignore-missing-imports
