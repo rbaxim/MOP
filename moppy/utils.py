@@ -1,9 +1,9 @@
-import aiohttp
+import aiohttp # pyright: ignore[reportMissingImports]
 import ssl
 import aiofiles # pyright: ignore[reportMissingModuleSource]
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import psutil
+import psutil # pyright: ignore[reportMissingModuleSource]
 import json
 import shlex
 from enum import Enum, auto

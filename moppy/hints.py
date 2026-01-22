@@ -1,8 +1,7 @@
 """
 Just for the type checker to shut up
 """
-from typing import Protocol, Awaitable, Optional
-import asyncio
+from typing import Protocol
 
 class TextStream(Protocol):
     def write(self, s: str) -> int: ...

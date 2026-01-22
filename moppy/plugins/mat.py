@@ -1,15 +1,15 @@
 """
 Modular Application Terminal
 """
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse, JSONResponse, RedirectResponse, Response
+from fastapi import FastAPI, Request # pyright: ignore[reportMissingImports]
+from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse, JSONResponse, RedirectResponse, Response # pyright: ignore[reportMissingImports]
 import hashlib
-import aiohttp
+import aiohttp # pyright: ignore[reportMissingImports]
 import ssl
 import logging
-import brotlicffi as brotli
-import gzip
-from contextlib import asynccontextmanager
+import brotlicffi as brotli # pyright: ignore[reportMissingImports]
+import gzip # pyright: ignore[reportMissingImports]
+from contextlib import asynccontextmanager # pyright: ignore[reportMissingImports]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

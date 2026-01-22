@@ -1,5 +1,4 @@
-from typing import Awaitable, Optional
-import asyncio
+from typing import Awaitable
 
 class ConPTY:
     """

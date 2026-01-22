@@ -27,6 +27,15 @@ import signal
 def is_frozen():
     return getattr(sys, 'frozen', False) or bool(getattr(sys, '_MEIPASS', []))
 
+def is_uv_available() -> bool:
+    try:
+        subprocess.run(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        return True
+    except FileNotFoundError:
+        return False
+    
+uv = is_uv_available()
+
 if __name__ == "__main__":
     print("[INFO] Python version: " + sys.version)
     print("[INFO] Is frozen: " + str(is_frozen()))
@@ -44,7 +53,10 @@ def missing_deps(deps: list[str]) -> list[str]:
 def install_package(package_name: str):
         """Install a package using pip"""
         print(f"[INFO] Installing {package_name}...")
-        base_cmd = [sys.executable, "-m", "pip", "install", package_name, "--quiet"]
+        if uv:
+            base_cmd = ["uv", "pip", "install", package_name, "--quiet"]
+        else:
+            base_cmd = [sys.executable, "-m", "pip", "install", package_name, "--quiet"]
         
         try:
             subprocess.check_call(base_cmd)
@@ -64,13 +76,13 @@ def install_package(package_name: str):
 def pip_check_dependency(package_name: str):
     try:
         result = subprocess.run(
-            ["pip", "check"],
+            ["uv", "pip", "check"] if uv else [sys.executable, "-m", "pip", "check"],
             capture_output=True,
             text=True,
             check=False,
         )
     except FileNotFoundError:
-        raise RuntimeError("pip is not available in this environment")
+        raise RuntimeError("uv is not available in this environment")
 
     output = result.stdout.strip()
     errors = result.stderr.strip()
@@ -361,10 +373,10 @@ is_conpty_available = False
 
 if sys.platform == "win32":
     try:
-        import moppy.C.mop_conpty as conpty # pyright: ignore[reportMissingImports]
+        import moppy.C.mop_conpty as conpty # pyright: ignore[reportMissingModuleSource, reportMissingImports]
         is_conpty_available = True
     except ImportError:
-        import winpty
+        import winpty # pyright: ignore[reportMissingImports]
 else:
     import termios
     import pty as unixpty

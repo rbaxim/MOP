@@ -1,11 +1,11 @@
-from cryptography import x509
-from cryptography.x509.oid import NameOID
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography import x509 # pyright: ignore[reportMissingImports]
+from cryptography.x509.oid import NameOID # pyright: ignore[reportMissingImports]
+from cryptography.hazmat.primitives import hashes, serialization # pyright: ignore[reportMissingImports]
+from cryptography.hazmat.primitives.asymmetric import ec # pyright: ignore[reportMissingImports]
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import ipaddress
-from colorama import Fore, Back, Style, init  # noqa: F401
+from colorama import Fore, Back, Style, init  # pyright: ignore[reportMissingModuleSource] # noqa: F401
 
 init(autoreset=True)
 
