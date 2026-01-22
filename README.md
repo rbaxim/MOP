@@ -1,13 +1,13 @@
 # MOP
 
 ![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
-![License](https://img.shields.io/badge/license-MIT-green?link=https%3A%2F%2Fgithub.com%2Frbaxim%2FMOP%3Ftab%3DMIT-1-ov-file)
+![License](https://img.shields.io/badge/license-Apache--2.0-green?link=https%3A%2F%2Fgithub.com%2Frbaxim%2FMOP%3Ftab%3DMIT-1-ov-file)
 ![Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Frbaxim%2FMOP%2Frefs%2Fheads%2Fmain%2Fversion_badge.json)
 ![GitHub repo size](https://img.shields.io/github/repo-size/rbaxim/MOP?label=Repo%20Size)
 
-A stdio ↔ HTTP(s) bridge: runs subprocess-backed services and exposes them via a small FastAPI server.
+A stdio ↔ HTTP(s) bridge that runs subprocess-backed services and exposes them via a lightweight FastAPI server.
 
-MOP stands for *Modular Protocol* as it is designed to be as modular as possible.
+MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
 ## Highlights
 
@@ -20,10 +20,27 @@ MOP stands for *Modular Protocol* as it is designed to be as modular as possible
 
 ### Quick start (Instruction kit)
 
-I do not recommend using windows as it is extremely unstable.
+> [!IMPORTANT]
+> **Windows is not recommended**
+> Windows support partially exists but is extremely unstable
+> You may encounter random crashes and SSL issues
+> The winpty module does not allow MOP to enable/disable echo
+> Do not attempt to use my broken implementation of conpty with mop
+> It crashes the server and needs fixing
 
-1. Install Python (3.13 or 3.12 are recommended), venv and pip:
+1. Install Python (3.13 or 3.12 are recommended):
    - Debian/Ubuntu:
+
+        ***It is recommended that you install uv and use that instead of pip and venv***
+
+     ```bash
+     sudo apt update && sudo apt install -y python3
+     curl -LsSf https://astral.sh/uv/install.sh | sh
+     export PATH="$HOME/.cargo/bin:$PATH"
+     uv --version
+     ```
+
+    > If you want to use standard pip and uv. run this command instead:
 
      ```bash
      sudo apt update && sudo apt install -y python3 python3-venv python3-pip
@@ -31,12 +48,31 @@ I do not recommend using windows as it is extremely unstable.
 
    - macOS (Homebrew):
 
+        ***It is recommended that you install uv and use that instead of pip and venv***
+
      ```bash
      brew install python
+     brew install uv
+     uv --version
      ```
 
+    > If you want to use standard pip and venv. Just execute the first command and ignore the rest.
+
    - Windows:
-     Install from [python.org](https://python.org) or: ```choco install python```
+
+        Install UV by running this command below
+
+     ```powershell
+     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex".
+     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+     uv --version
+     ```
+
+        After you have installed uv. Install python
+
+        > If you dont want to use uv. Just install python and use pip.
+
+        Install Python from [python.org](https://python.org) or: ```choco install python```
 2. Create and activate a virtual environment:
    - Windows (PowerShell):
 
@@ -52,29 +88,35 @@ I do not recommend using windows as it is extremely unstable.
      source .venv/bin/activate
     ```
 
-3. (Optional) Upgrade pip:
-   python -m pip install -U pip
-4. Run the server:
+3. Run the server:
 
    ```bash
    python mop.py -c "python test.py"
    ```
 
    - Use --ssl to enable TLS (requires certs in ./moppy/certs or generate them with ./moppy/ssl_certs.py).
-5. Open the Web UI in your browser at localhost:8080.
+
+4. Open the Web UI in your browser at localhost:8080.
 
 ## Usage notes
 
 - The server exposes APIs under /mop/*. Use the Web UI for an interactive session.
 - Plugins: place plugins and manifest in ./moppy/plugins. The server loads core plugins from that folder.
-- Choose either to use Piping or PTY as the method for getting terminal output and pushing terminal input. (Default is pty)
+- Choose either to use Pipes or PTY as the method for doing terminal/input output. (Default: PTY)
 
 | Method | Pros | Cons |
 | --- | --- | --- |
-| PTY | Full Terminal output (only returns ANSI that contain color/style data) Great for interactive sessions | Spawns a entire terminal. Much slower than Piping |
-| Pipes | Efficent and fast. Great when you are with limited resources | Extremely buggy, doesn't give full tty output, and does not work for interactive sessions |
+| PTY | Full Terminal output (only returns ANSI that contain color/style data) Great for interactive sessions | Spawns an entire terminal. Much slower than Pipes |
+| Pipes | Efficient and fast. Great when you are with limited resources | Extremely buggy, doesn't give full tty output, not suitable for interactive sessions |
 
-- Use the public session to reduce strain on the server. *Would you rather spawn 100 processes for 100 clients or spawn 1 process and every client connects to it*
+- Use the public session to reduce strain on the server.
+
+> *Would you rather spawn 100 processes for 100 clients or spawn 1 process and every client connects to it*
+>
+> The public process helps reduce server load by allowing multiple clients to share a single backend process instead of spawning one process per client.
+>
+> To disable it. See the argument table below
+
 
 - **Windows Echo Issues**: The winpty module for python does not provide a easy way to disable echoing in terminals (Mirroring stdin to stdout)
 
@@ -100,6 +142,7 @@ I do not recommend using windows as it is extremely unstable.
 > **Remote Code Execution Risk**: MOP bridges stdin/stdout to HTTP(s).
 > Exposing this server to the open internet without a firewall or
 > authentication is extremely dangerous.
+> MOP is intended for local, trusted networks.
 
 ### The Dangers of stealing a port
 
@@ -109,31 +152,26 @@ I do not recommend using windows as it is extremely unstable.
 
 ## Repo & dev
 
-- This project aims to be mypy-compliant. Run static checks:
-
-  ```bash
-  mypy .
-  ```
-
 - Create custom endpoints at [./moppy/mop_custom_endpoints.json](./moppy/mop_custom_endpoints.json) with any programming language.
 
 - Add custom plugins at [./moppy/plugins](./moppy/plugins/)
 
 ### 2 API Endpoints. Same Backend
 
-- This project provides 2 verisons of the api
+- This project provides two versions of the API
 
-    The basic one (```/mop```) and the advanced one (```/mop/power```)
+    The Basic API: ```/mop```
+    The Advanced API: ```/mop/power```
 
 - The basic endpoints
 
     These endpoints (```/mop/init```,```/mop/read```, ```/mop/end```, etc.) are poll-based.
 
-- The advnaced endpoints
+- The advanced endpoints
 
     These endpoints located at ```/mop/power``` are advanced and slightly harder to use.
 
-    But they are often more faster than the poll-based ones
+    But they are often faster than the poll-based ones
 
     - SSE endpoint: ```/mop/power/stream/read```
 
@@ -145,7 +183,7 @@ Each Core plugin has its purpose
 
 - **Attic**
 
-    Persisting sessions across Server restarts
+    Persists sessions across server restarts
 
     Binds to localhost:9000.
 
@@ -156,7 +194,7 @@ Each Core plugin has its purpose
 
 - **Mat**
 
-    The web UI
+    The Web UI
 
     Binds to localhost:8080
 
@@ -164,6 +202,14 @@ Each Core plugin has its purpose
 
 ___
 
-License
+## Attribution
+
+If you use MOP or substantial portions of it in your project,
+please include visible credit (README, documentation, or UI)
+linking back to this repository.
+
+This is not legally required by the license, but is appreciated.
+
+## License
 
 - See [LICENSE](LICENSE).

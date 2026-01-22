@@ -11,6 +11,8 @@
 #include <condition_variable>
 #include <queue>
 
+// Help wanted. Crashes main server somehow. On /mop/init call. it crashes. 
+
 // ConPTY API function pointers
 typedef HRESULT (WINAPI *CreatePseudoConsoleFunc)(COORD, HANDLE, HANDLE, DWORD, HPCON*);
 typedef void (WINAPI *ClosePseudoConsoleFunc)(HPCON);
