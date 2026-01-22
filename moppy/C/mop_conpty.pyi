@@ -1,15 +1,5 @@
-"""
-Just for the type checker to shut up
-"""
-from typing import Protocol, Awaitable, Optional
+from typing import Awaitable, Optional
 import asyncio
-
-class TextStream(Protocol):
-    def write(self, s: str) -> int: ...
-    def flush(self) -> None: ...
-    def isatty(self) -> bool: ...
-
-# Dummy winpty for mypy to shut up about winpty on unix-like
 
 class ConPTY:
     """
@@ -35,7 +25,7 @@ class ConPTY:
             RuntimeError: If ConPTY API is not available (Windows < 10 1809)
             OSError: If process creation fails
         """
-        return None
+        ...
     
     @property
     def pid(self) -> int:
@@ -47,7 +37,7 @@ class ConPTY:
         Returns:
             The child process ID
         """
-        return -1
+        ...
     
     def set_echo(self, enable: bool) -> None:
         """
@@ -59,7 +49,7 @@ class ConPTY:
         Args:
             enable: True to enable echo, False to disable it
         """
-        return
+        ...
     
     def send_signal(self, sig_type: int) -> None:
         """
@@ -76,9 +66,9 @@ class ConPTY:
             ValueError: If an unsupported signal type is provided
             OSError: If signal delivery fails
         """
-        return
+        ...
     
-    async def read_async(self) -> bytes:
+    def read_async(self) -> Awaitable[bytes]:
         """
         Asynchronously read data from the terminal output.
         
@@ -91,9 +81,9 @@ class ConPTY:
         Note:
             Returns empty bytes when the terminal is closed or EOF is reached.
         """
-        return b""
+        ...
     
-    async def write_async(self, data: bytes) -> int:
+    def write_async(self, data: bytes) -> Awaitable[int]:
         """
         Asynchronously write data to the terminal input.
         
@@ -107,7 +97,7 @@ class ConPTY:
         Returns:
             An awaitable that resolves to the number of bytes written
         """
-        return 0
+        ...
     
     def close(self) -> None:
         """
@@ -119,7 +109,7 @@ class ConPTY:
         Note:
             This method is idempotent and can be called multiple times safely.
         """
-        return
+        ...
 
 __version__: str
 """
@@ -140,7 +130,7 @@ def spawn(command: str, cols: int = 80, rows: int = 24) -> ConPTY:
     Returns:
         A new ConPTY instance
     """
-    return ConPTY(command, cols, rows)
+    ...
 
 # Type aliases for common patterns
 StreamData = bytes

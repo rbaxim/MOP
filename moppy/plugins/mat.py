@@ -132,7 +132,7 @@ async def favicon(request: Request):
 @etag_response
 async def ui(request: Request):
     try:
-        with open("index.html", "r") as f:
+        with open("index.html", "r", encoding="utf-8") as f:
             return HTMLResponse(f.read())
     except FileNotFoundError:
         return PlainTextResponse("The server owner has not installed the UI. (Location: \"/ui/\")", status_code=404)
@@ -141,7 +141,7 @@ async def ui(request: Request):
 @etag_response
 async def ui_session(request: Request):
     try:
-        with open("session.html", "r") as f:
+        with open("session.html", "r", encoding="utf-8") as f:
             return HTMLResponse(f.read())
     except FileNotFoundError:
         return PlainTextResponse("The server owner has not installed the UI. (Location: \"/ui/session\")", status_code=404)
@@ -151,7 +151,7 @@ async def ui_session(request: Request):
 @etag_response
 async def client(request: Request, full_path: str = ""):
     try:
-        with open("client.html", "r") as f:
+        with open("client.html", "r", encoding="utf-8") as f:
             return HTMLResponse(f.read())
     except FileNotFoundError:
         return PlainTextResponse("The server owner has not installed the html client. (Location: \"/client\")", status_code=404)

@@ -20,6 +20,8 @@ MOP stands for *Modular Protocol* as it is designed to be as modular as possible
 
 ### Quick start (Instruction kit)
 
+I do not recommend using windows as it is extremely unstable.
+
 1. Install Python (3.13 or 3.12 are recommended), venv and pip:
    - Debian/Ubuntu:
 

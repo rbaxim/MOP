@@ -19,7 +19,7 @@ import hashlib
 import json
 from pathlib import Path
 import importlib.util
-from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional
+from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional, Union
 import warnings
 from contextlib import asynccontextmanager
 import signal
@@ -289,7 +289,7 @@ if __name__ == "__main__":
             cmd.append("./certs/cert.pem")
             cmd.append("--ssl-keyfile")
             cmd.append("./certs/key.pem")
-        core_plugins["name"]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd)
+        core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd)
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting core plugin:", name + f" at port {plugin['port']}" if plugin["port"] else "")
         
         time.sleep(0.5)
@@ -309,11 +309,7 @@ if __name__ == "__main__":
         handle = subprocess.Popen(["python", str(script)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while handle.poll() is None:
             time.sleep(0.5)
-        if handle.poll() != 0:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to load script: {script}")
-            sys.exit(1)
-        else:
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Loaded script: {script}")
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Loaded script: {script}")
 
 def is_uvicorn():
     try:
@@ -360,13 +356,19 @@ if sys.platform == "win32":
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # pyright: ignore[reportAttributeAccessIssue] Stub doesnt have it yet
-    
+
+is_conpty_available = False    
+
 if sys.platform == "win32":
-    import winpty # pyright: ignore[reportMissingImports]
+    try:
+        import moppy.C.mop_conpty as conpty # pyright: ignore[reportMissingImports]
+        is_conpty_available = True
+    except ImportError:
+        import winpty
 else:
     import termios
     import pty as unixpty
-    from moppy.hints import dummy_winpty as winpty 
+    from moppy.hints import ConPTY as conpty
     
 env = os.environ.copy()
 
@@ -568,7 +570,7 @@ async def read_stdout(key: str):
     return data[len(data) - 1]
 
 class Terminal:
-    def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional[winpty.PTY]=None, use_pipes: bool = False):
+    def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional[Union['winpty.PTY', 'conpty.ConPTY']]=None, use_pipes: bool = False): # type: ignore[name-defined]
         self.use_pipes: bool = use_pipes
         
         if self.use_pipes:
@@ -580,7 +582,12 @@ class Terminal:
             self.proc: asyncio.subprocess.Process = cast(asyncio.subprocess.Process, proc) # type: ignore[no-redef]
         else:
             self.master_fd = None
-            self.pty: winpty.PTY = cast(winpty.PTY, pty_obj)
+            if is_conpty_available:
+                if isinstance(pty_obj, conpty.ConPTY): # type: ignore
+                    self.pty: conpty.ConPTY = cast(conpty.ConPTY, pty_obj) # pyright: ignore[reportAttributeAccessIssue, reportRedeclaration]
+            else:
+                self.pty: winpty.PTY = cast(winpty.PTY, pty_obj)
+            
             self.proc = None # pyright: ignore[reportAttributeAccessIssue] # type: ignore[no-redef]
 
     async def read(self, n=1024) -> dict[str, str]:
@@ -590,11 +597,21 @@ class Terminal:
             stderr_obj = cast(asyncio.StreamReader, self.proc.stderr)
             stdout = await stdout_obj.read(n)
             stderr = await stderr_obj.read(n)
-            
             return {"stdout": stdout.decode("utf-8"), "stderr": stderr.decode("utf-8")}
         if sys.platform == "win32":
-            data = await loop.run_in_executor(None, self.pty.read)
-            return {"stdout": data, "stderr": ""}
+            if is_conpty_available:
+                pty = cast(conpty.ConPTY, self.pty)
+                try:
+                    data = await pty.read_async()
+                    return {"stdout": data.decode("utf-8", errors="replace"), "stderr": ""}
+                except Exception:
+                    return {"stdout": "", "stderr": ""}
+            else:
+                # winpty
+                pty = cast(winpty.PTY, self.pty)
+                loop = asyncio.get_running_loop()
+                data = await loop.run_in_executor(None, lambda: pty.read())
+                return {"stdout": data, "stderr": ""}
         else:
             data = await loop.run_in_executor(None, os.read, self.master_fd, n)
             return {"stdout": data.decode("utf-8"), "stderr": ""}
@@ -634,14 +651,14 @@ class Terminal:
             
             os.close(self.master_fd)
             return
-
-
-        if sig == utils.Signal.TERMINATE:
-            self.proc.terminate()
-        elif sig == utils.Signal.KILL:
-            self.proc.kill()
-        elif sig == utils.Signal.INTERRUPT:
-            os.kill(self.proc.pid, signal.CTRL_C_EVENT) # Windows here
+        else:
+            pty = cast(Union["winpty.PTY", "conpty.ConPTY"], self.pty)
+            if sig == utils.Signal.TERMINATE:
+                os.kill(pty.pid, signal.CTRL_BREAK_EVENT) # pyright: ignore[reportArgumentType]
+            elif sig == utils.Signal.KILL:
+                os.kill(pty.pid, signal.SIGTERM) # pyright: ignore[reportArgumentType]
+            elif sig == utils.Signal.INTERRUPT:
+                os.kill(pty.pid, signal.CTRL_C_EVENT) # pyright: ignore[reportArgumentType] # Windows here
         
 
     async def write(self, data: str) -> None:
@@ -657,7 +674,13 @@ class Terminal:
         if sys.platform == "win32":
             if self.pty is None:
                 return
-            await loop.run_in_executor(None, self.pty.write, data)
+            if is_conpty_available:
+                pty = cast(conpty.ConPTY, self.pty)
+                await pty.write_async(data.encode("utf-8"))
+                return
+            else:
+                pty = cast(winpty.PTY, self.pty)
+                await loop.run_in_executor(None, pty.write, data)
         else:
             if self.master_fd is None:
                 return
@@ -669,16 +692,48 @@ class Terminal:
     
     @property
     def pid(self) -> int:
-        if self.proc is None:
-            return -1
-        return self.proc.pid
+        if sys.platform == "win32":
+            return self.pty.pid # pyright: ignore[reportReturnType]
+        else:
+            return self.proc.pid
 
 async def spawn_tty(command: list[str], disable_echo=True) -> Terminal:
     new_cwd = Path(args.cwd).expanduser().resolve().absolute()
     if sys.platform == "win32":
-        pty_obj = winpty.PTY(cols=80, rows=24)
-        env_str = "\0".join(f"{k}={v}" for k, v in env.items()) + "\0"
-        pty_obj.spawn(" ".join(command), env=env_str, cwd=str(new_cwd))
+        
+        # Format environment variables as null-terminated string
+        env_str = "\0".join(f"{k}={v}" for k, v in env.items()) + "\0\0"
+        
+        # Convert command list to single string
+        cmd_str = " ".join(command)
+        
+        # Create ConPTY instance with environment and working directory
+        if is_conpty_available:
+            pty_obj = conpty.ConPTY( # pyright: ignore[reportPossiblyUnboundVariable]
+                command=cmd_str,
+                cols=80,
+                rows=24,
+                cwd=str(new_cwd),
+                env=env
+            )
+            
+            # Disable echo if requested
+            if disable_echo:
+                pty_obj.set_echo(False)
+        else:
+            pty_obj = winpty.PTY( # pyright: ignore[reportPossiblyUnboundVariable]
+                cols=80,
+                rows=24,
+            )
+            
+            pty_obj.spawn(
+                appname=cmd_str,
+                cmdline=cmd_str,
+                cwd=str(new_cwd),
+                env=env_str,
+            )
+            
+            
         return Terminal(pty_obj=pty_obj)
     else:
         master_fd, slave_fd = unixpty.openpty()
@@ -1282,7 +1337,7 @@ if __name__ == "__main__" and not is_uvicorn():
         print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     You are not using SSL. This is not recommended for production use. Use --ssl to enable SSL.")
             
     if sys.platform == "win32":
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     Windows is not very well supported. Use Linux or WSL. Echo cannot be disabled on Windows.")
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     Windows is not very well supported and is extremely unstable. Use Linux or WSL.")
         
     loop_impl: Literal["uvloop", "asyncio"] = "uvloop" if sys.platform != "win32" else "asyncio"
     
