@@ -15,17 +15,14 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: Install uv and linters
+      - name: Run Ruff
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
           uv --version
           uv venv
           uv pip install ruff
-
-      - name: Run Ruff
-        # Ruff catches bugs and enforces style
-        run: ruff check .
+          uv run ruff check .
 
   typecheck:
     needs: lint
@@ -40,7 +37,7 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: Install uv and dependencies
+      - name: Run mypy
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
@@ -49,7 +46,4 @@ jobs:
           uv venv
           uv pip install -r requirements.txt
           uv pip install mypy
-
-
-      - name: Run Mypy
-        run: mypy . --explicit-package-bases --install-types --non-interactive
+          uv run mypy . --explicit-package-bases --install-types --non-interactive
