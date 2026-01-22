@@ -150,7 +150,7 @@ Each Core plugin has its purpose
     Binds to localhost:9000.
 
     > [!WARNING]
-    > DO NOT EXPOSE PUBLICLY
+    > **DO NOT EXPOSE PUBLICLY**
 
     Stands for *Archived Terminal and Task Image Cache*
 
