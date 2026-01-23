@@ -36,6 +36,38 @@ def is_uv_available() -> bool:
     except FileNotFoundError:
         return False
     
+def get_certs():
+    cert_dir = Path("./mop/certs")
+    ssl_cert, ssl_key = None, None
+    
+    if any(cert_dir.glob("*.key")):
+        cert_files = list(cert_dir.glob("*.pem"))
+        key_files = list(cert_dir.glob("*.key"))
+
+        if cert_files and key_files:
+            # We take the first match found
+            ssl_cert = str(cert_files[0].absolute())
+            ssl_key = str(key_files[0].absolute())
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found KEY and CERTIFICATE")
+            return ssl_cert, ssl_key
+        else:
+            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /mop/certs")
+        
+        
+    
+    for file in cert_dir.glob("*.pem"):
+        content = file.read_text()
+        if "PRIVATE KEY" in content:
+            ssl_key = str(file.absolute())
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found KEY")
+        elif "CERTIFICATE" in content:
+            ssl_cert = str(file.absolute())
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found CERTIFICATE")
+        
+    if not ssl_cert or not ssl_key:
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /mop/certs")
+    return ssl_cert, ssl_key
+    
 uv = is_uv_available()
 
 if __name__ == "__main__":
@@ -196,6 +228,10 @@ def steal_port(port):
         used_port = None
         return
     is_killed = False 
+    
+    if ps_port.pid == os.getpid():
+        return
+    
     if port and not args.force_port:
         print(f"{Fore.RED}ERROR{Fore.RESET}:     Port {args.port} is already in use by PID {used_port}.")
         print(f"{Fore.RED}ERROR{Fore.RESET}:     Process name: {ps_port.name()}")
@@ -299,11 +335,12 @@ if __name__ == "__main__":
         steal_port(plugin["port"])
         
         cmd = shlex.split(runtime)
-        if "ssl" in plugin["supports"]:
+        if "ssl" in plugin["supports"] and args.ssl:
+            cert, key = cast(tuple[str, str], get_certs())
             cmd.append("--ssl-certfile")
-            cmd.append("./certs/cert.pem")
+            cmd.append(str(Path(cert).absolute()))
             cmd.append("--ssl-keyfile")
-            cmd.append("./certs/key.pem")
+            cmd.append(str(Path(cert).absolute()))
         core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd)
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting core plugin:", name + f" at port {plugin['port']}" if plugin["port"] else "")
         
@@ -312,6 +349,8 @@ if __name__ == "__main__":
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     {name} is running!")
         else:
             print(f"{Fore.RED}ERROR{Fore.RESET}:     {name} failed to start!")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:     Stdout: {core_plugins[name]['handle'].stdout.read().decode('utf-8')}")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:     Stderr: {core_plugins[name]['handle'].stderr.read().decode('utf-8')}")
             sys.exit(1)
             
     print(f"{Fore.GREEN}INFO{Fore.RESET}:     All core plugins are running!")
@@ -525,9 +564,12 @@ def etag_response(func):
 
         # Only for JSONResponse or HTMLResponse
         if isinstance(response, (JSONResponse, HTMLResponse)):
-            body_bytes = response.body
-            if not body_bytes:  # ensure bytes
-                body_bytes = response.body.encode() if isinstance(response.body, str) else b""
+            if isinstance(response.body, bytes):
+                body_bytes = response.body
+            elif isinstance(response.body, str):
+                body_bytes = response.body.encode("utf-8")
+            else:
+                body_bytes = b""
             
             etag = hashlib.md5(body_bytes).hexdigest()
             # Check for If-None-Match header
@@ -904,7 +946,7 @@ async def tell_attic(request: Request):
     info = data.get("info")
     hashed_key = big_hash(key)
     if key == pub_key:
-        return JSONResponse({"status": "Cannot set tell process data for public key", "code": 1}, status_code=403)
+        return JSONResponse({"status": "Cannot tell process data for public key", "code": 1}, status_code=403)
     if hashed_key not in sessions:
         return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
     
@@ -1301,39 +1343,6 @@ async def external_endpoint_get(request: Request, path: str):
     header = response.get("headers", {})
     
     return Response(content, status_code=status_code, headers=header, media_type=response.get("media_type", "application/octet-stream"))
-
-    
-def get_certs():
-    cert_dir = Path("./mop/certs")
-    ssl_cert, ssl_key = None, None
-    
-    if any(cert_dir.glob("*.key")):
-        cert_files = list(cert_dir.glob("*.pem"))
-        key_files = list(cert_dir.glob("*.key"))
-
-        if cert_files and key_files:
-            # We take the first match found
-            ssl_cert = str(cert_files[0].absolute())
-            ssl_key = str(key_files[0].absolute())
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found KEY and CERTIFICATE")
-            return ssl_cert, ssl_key
-        else:
-            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /mop/certs")
-        
-        
-    
-    for file in cert_dir.glob("*.pem"):
-        content = file.read_text()
-        if "PRIVATE KEY" in content:
-            ssl_key = str(file.absolute())
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found KEY")
-        elif "CERTIFICATE" in content:
-            ssl_cert = str(file.absolute())
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found CERTIFICATE")
-        
-    if not ssl_cert or not ssl_key:
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /mop/certs")
-    return ssl_cert, ssl_key
 
 if __name__ == "__main__" and not is_uvicorn():
     if not Path(args.cwd).expanduser().absolute().exists():

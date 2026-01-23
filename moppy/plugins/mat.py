@@ -59,6 +59,8 @@ logging.basicConfig(
     ]
 )
 
+app.state.mop_scheme = None 
+
 
 async def fetch_backend(path: str, method="GET", body=None, headers=None):
     ssl_context = make_ssl_context()
@@ -70,6 +72,13 @@ async def fetch_backend(path: str, method="GET", body=None, headers=None):
     ]
 
     last_error = None
+    
+    if app.state.mop_scheme is not None:
+        scheme = app.state.mop_scheme
+        if scheme == "https":
+            urls = [("https", f"https://localhost:8000/{path}"), ("https", f"https://127.0.0.1:8000/{path}")]
+        else:
+            urls = [("http",  f"http://localhost:8000/{path}"), ("http",  f"http://127.0.0.1:8000/{path}")]
 
     for scheme, url in urls:
         try:
@@ -83,6 +92,8 @@ async def fetch_backend(path: str, method="GET", body=None, headers=None):
             ) as resp:
                 content = await resp.read()
                 logging.info(f"Received {resp.status} {url}")
+                if app.state.mop_scheme is None:
+                    app.state.mop_scheme = scheme
                 return {
                     "status": resp.status,
                     "body": content,
