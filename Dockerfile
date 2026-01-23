@@ -17,13 +17,14 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     build-essential \
     libssl-dev \
-    libffi-dev 
+    libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ENV PATH="/root/.local/bin:$PATH"
 
-RUN uv venv
+RUN uv sync --frozen --no-dev
 
 # Expose port for MOP server (example: 8080)
 EXPOSE 8080

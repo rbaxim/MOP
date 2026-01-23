@@ -63,7 +63,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
         Install UV by running this command below
 
      ```powershell
-     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex".
+     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
      $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
      uv --version
      ```
@@ -74,29 +74,44 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
         Install Python from [python.org](https://python.org) or: ```choco install python```
 2. Create and activate a virtual environment:
-   - Windows (PowerShell):
+   - All systems:
 
-    ```powershell
-     python -m venv .venv
-     .venv\Scripts\Activate.ps1
-    ```
+     ```bash
+       uv sync
+     ```
 
-   - macOS / Linux:
+     > If you specificly want to use pip and venv. Run the commands below
+        - Linux/Mac
 
-    ```bash
-     python3 -m venv .venv
-     source .venv/bin/activate
-    ```
+        ```bash
+        python3 -m venv .venv
+        source ./.venv/bin/activate
+        ```
+
+        - Windows
+
+        ```powershell
+        python -m venv .venv
+        ./.venv/Scripts/activate.ps1
+        ```
 
 3. Run the server:
 
    ```bash
-   python mop.py -c "python test.py"
+   uv run python mop.py -c "python test.py"
    ```
 
    - Use --ssl to enable TLS (requires certs in ./moppy/certs or generate them with ./moppy/ssl_certs.py).
 
-4. Open the Web UI in your browser at localhost:8080.
+   > If you want don't want to use uv. Then run the commands below. (Assuming you enabled the venv already using the commands above)
+
+    - All systems
+
+    ```bash
+    python mop.py -c "python test.py"
+    ```
+
+4. Open the Web UI in your browser at <http://localhost:8080>.
 
 ## Usage notes
 
@@ -111,12 +126,11 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
 - Use the public session to reduce strain on the server.
 
-> *Would you rather spawn 100 processes for 100 clients or spawn 1 process and every client connects to it*
+> [!TIP] *Would you rather spawn 100 processes for 100 clients or spawn 1 process and every client connects to it*
 >
 > The public process helps reduce server load by allowing multiple clients to share a single backend process instead of spawning one process per client.
 >
 > To disable it. See the argument table below
-
 
 - **Windows Echo Issues**: The winpty module for python does not provide a easy way to disable echoing in terminals (Mirroring stdin to stdout)
 
@@ -173,9 +187,9 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
     But they are often faster than the poll-based ones
 
-    - SSE endpoint: ```/mop/power/stream/read```
+  - SSE endpoint: ```/mop/power/stream/read```
 
-    - Websocket endpoint: ```/mop/power/sock/{key}```
+  - Websocket endpoint: ```/mop/power/sock/{key}```
 
 ### Core Plugins
 
@@ -189,6 +203,8 @@ Each Core plugin has its purpose
 
     > [!WARNING]
     > **DO NOT EXPOSE PUBLICLY**
+    > Attic is not designed to be exposed publicly.
+    > It fully entrusts the requests it is being given
 
     Stands for *Archived Terminal and Task Image Cache*
 
