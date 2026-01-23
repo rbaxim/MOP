@@ -2,6 +2,9 @@
 ignore_missing_imports = true
 explicit_package_bases = true
 
+[tool.uv]
+managed = true
+
 [project]
 name = "moppy"
 version = "1.0.0"
@@ -11,4 +14,41 @@ readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
   { name = "rbaxim" }
+]
+
+dependencies = [
+    # Core Server & Web
+    "fastapi==0.128.0",
+    "uvicorn==0.40.0",
+    "starlette==0.50.0",
+    "pydantic==2.12.5",
+    "slowapi==0.1.9",
+
+    # Networking & Async IO
+    "aiohttp==3.13.3",
+    "aiofiles==25.1.0",
+    "aiohappyeyeballs==2.6.1",
+    "certifi==2026.1.4",
+
+    # System & Utils
+    "psutil==7.2.1",
+    "colorama==0.4.6",
+    
+    # Compression & Encryption (Plugin requirements)
+    "cryptography==46.0.3",
+    "brotlicffi==1.2.0.0",
+    "brotli==1.2.0",
+    "brotli-asgi==1.6.0",
+    "base91==1.0.1",
+    
+    # Other internal requirements
+    "h11==0.16.0",
+    "types-aiofiles==24.1.0.20250822"
+]
+
+# Development-only tools (keeps your production environment lean)
+[dependency-groups]
+dev = [
+    "mypy>=1.14.0",
+    "ruff>=0.9.0",
 ]
