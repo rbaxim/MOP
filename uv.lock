@@ -467,7 +467,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "slowapi" },
     { name = "starlette" },
-    { name = "types-aiofiles" },
     { name = "uvicorn" },
 ]
 
@@ -475,6 +474,7 @@ dependencies = [
 dev = [
     { name = "mypy" },
     { name = "ruff" },
+    { name = "types-aiofiles" },
 ]
 
 [package.metadata]
@@ -495,7 +495,6 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "slowapi", specifier = "==0.1.9" },
     { name = "starlette", specifier = "==0.50.0" },
-    { name = "types-aiofiles", specifier = "==24.1.0.20250822" },
     { name = "uvicorn", specifier = "==0.40.0" },
 ]
 
@@ -503,6 +502,7 @@ requires-dist = [
 dev = [
     { name = "mypy", specifier = ">=1.14.0" },
     { name = "ruff", specifier = ">=0.9.0" },
+    { name = "types-aiofiles", specifier = "==24.1.0.20250822" },
 ]
 
 [[package]]

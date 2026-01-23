@@ -43,7 +43,6 @@ dependencies = [
     
     # Other internal requirements
     "h11==0.16.0",
-    "types-aiofiles==24.1.0.20250822"
 ]
 
 # Development-only tools (keeps your production environment lean)
@@ -51,4 +50,5 @@ dependencies = [
 dev = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
+    "types-aiofiles==24.1.0.20250822"
 ]
