@@ -136,10 +136,9 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
 - Use the public session to reduce strain on the server.
 
-> [!TIP] *Would you rather spawn 100 processes for 100 clients or spawn 1 process and every client connects to it*
->
+> [!TIP]
+> *Would you rather spawn 100 processes for 100 clients or spawn 1 process and every client connects to it*:
 > The public process helps reduce server load by allowing multiple clients to share a single backend process instead of spawning one process per client.
->
 > To disable it. See the argument table below
 
 - **Windows Echo Issues**: The winpty module for Python does not provide a easy way to disable echoing in terminals (Mirroring stdin to stdout)
@@ -220,7 +219,7 @@ Each Core plugin has its purpose
     Binds to localhost:9000.
 
     > [!WARNING]
-    > **DO NOT EXPOSE PUBLICLY**
+    > **DO NOT EXPOSE PUBLICLY**:
     > Attic is not designed to be exposed publicly.
     > It fully entrusts the requests it is being given
 
