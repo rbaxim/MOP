@@ -218,12 +218,6 @@ Each Core plugin has its purpose
 
     Binds to localhost:9000.
 
-  ### Public Exposure Warning
-
-    > [!WARNING]
-    > **DO NOT EXPOSE PUBLICLY**: Attic is not designed to be exposed publicly.
-    > It fully entrusts the requests it is being given
-
     Stands for *Archived Terminal and Task Image Cache*
 
 - **Mat**
@@ -233,6 +227,12 @@ Each Core plugin has its purpose
     Binds to localhost:8080
 
     Stands for *Modular Application Terminal*
+
+### Attic Exposure Warning
+>
+> [!WARNING]
+> **DO NOT EXPOSE PUBLICLY**: Attic is not designed to be exposed publicly.
+> It fully entrusts the requests it is being given
 
 ___
 
