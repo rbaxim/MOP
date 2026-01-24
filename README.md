@@ -218,6 +218,8 @@ Each Core plugin has its purpose
 
     Binds to localhost:9000.
 
+  ### Public Exposure Warning
+
     > [!WARNING]
     > **DO NOT EXPOSE PUBLICLY**: Attic is not designed to be exposed publicly.
     > It fully entrusts the requests it is being given
