@@ -87,6 +87,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
      <details>
      If you specifically want to use pip and venv. Run the commands below
+     
         - Linux/Mac
 
         ```bash
