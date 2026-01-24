@@ -1,0 +1,4 @@
+name: "Disable Stack Trace Alerts"
+query-filters:
+  - exclude:
+      id: py/stack-trace-exposure

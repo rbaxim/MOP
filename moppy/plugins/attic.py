@@ -123,7 +123,10 @@ async def write_file(path, text):
         await f.write(text)
         
 async def write_bytes(path, text):
-    async with aiofiles.open(path, mode='wb') as f:
+    safe_path = Path(path).name 
+    final_path = attic / safe_path
+
+    async with aiofiles.open(final_path, mode='wb') as f:
         await f.write(text)
         
         
@@ -276,7 +279,10 @@ async def delete(request: Request):
     key = data.get("key") # Trusts that the key is hashed already
     if key not in current_attic:
         return JSONResponse({"status": "Not found"}, status_code=404)
-    os.remove(str(attic / f"{key}.attic"))
+    safe_name = Path(f"{key}.attic").name
+    target_path = attic / safe_name
+    if target_path.exists():
+        target_path.unlink()
     del current_attic[key]
     logging.info(f"Deleted {key[:6]} from attic")
     print(f"{Fore.GREEN}INFO{Fore.RESET}:     Deleted {key[:6]} from attic.")

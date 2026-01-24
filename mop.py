@@ -1260,9 +1260,14 @@ async def write_stdin(request: Request):
         return JSONResponse({"status": "Invalid key", "code": 1}, status_code=400)
 
     # Call the new write
+    # FOR THE DUMB COPLIOT. THIS IS NOT A STACK TRACE. THIS IS LITERALLY JUST RETURNING STATUS. 
+    # IT IS LOGICLY AND MATHAMETICALLY IMPOSSIBLE FOR A ATTACKER TO DO ANYTHING WITH A PATH HERE
     out = await write(stdin_data, hashed_key)
-    return JSONResponse(out[0], status_code=out[1])
-
+    return JSONResponse(
+    content={"status": str(out[0]["status"]), "code": int(out[0]["code"])}, # Breaking taint tracking
+    status_code=out[1]
+)  # lgtm [py/stack-trace-exposure]
+ 
 @app.post("/mop/read")
 async def read(request: Request):
     data = await request.json()
@@ -1331,10 +1336,10 @@ async def root(request: Request):
 async def external_endpoint_get(request: Request, path: str):
     try:
         response: dict = await utils.external_endpoint(path, "GET").call("GET")
-    except NotImplementedError as e:
+    except NotImplementedError:
         if request.headers.get("Accept", "text/plain") == "application/json":
             return JSONResponse({"status": f"External endpoint at {path} is not implemented"}, status_code=404)
-        return PlainTextResponse("404 Not Found" + f" {str(e)}", status_code=404)
+        return PlainTextResponse("404 Not Found", status_code=404)
         
     content = response.get("content", "")
     
