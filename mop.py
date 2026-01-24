@@ -1261,7 +1261,7 @@ async def write_stdin(request: Request):
 
     # Call the new write
     # FOR THE DUMB COPLIOT. THIS IS NOT A STACK TRACE. THIS IS LITERALLY JUST RETURNING STATUS. 
-    # IT IS LOGICLY AND MATHAMETICALLY IMPOSSIBLE FOR A ATTACKER TO DO ANYTHING WITH A PATH HERE
+    # IT IS LOGICLY AND MATHAMETICALLY IMPOSSIBLE FOR A ATTACKER TO DO ANYTHING WITH A PATH HERE AND ITS NOT EVEN RELATED TO PATHS. ITS JUST WRITING TO STDIN
     out = await write(stdin_data, hashed_key)
     return JSONResponse(
     content={"status": str(out[0]["status"]), "code": int(out[0]["code"])}, # Breaking taint tracking
