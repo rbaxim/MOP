@@ -22,7 +22,7 @@ import hashlib
 import json
 from pathlib import Path
 import importlib.util
-from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional, Union
+from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional
 import warnings
 from contextlib import asynccontextmanager
 import signal
@@ -161,6 +161,8 @@ if not is_frozen() and __name__ == "__main__":
     
     if sys.platform != "win32":
         required_packages.append("uvloop")
+    else:
+        required_packages.append("pywinpty")
 
     # Check and install missing packages
     
@@ -412,18 +414,11 @@ if sys.platform == "win32":
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # pyright: ignore[reportAttributeAccessIssue] Stub doesnt have it yet
 
-is_conpty_available = False    
-
 if sys.platform == "win32":
-    try:
-        import moppy.C.mop_conpty as conpty # pyright: ignore[reportMissingModuleSource, reportMissingImports]
-        is_conpty_available = True
-    except ImportError:
-        import winpty # pyright: ignore[reportMissingImports]
+    import winpty # pyright: ignore[reportMissingImports]
 else:
     import termios
     import pty as unixpty
-    from moppy.hints import ConPTY as conpty
     
 env = os.environ.copy()
 
@@ -628,48 +623,39 @@ async def read_stdout(key: str):
     return data[len(data) - 1]
 
 class Terminal:
-    def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional[Union['winpty.PTY', 'conpty.ConPTY']]=None, use_pipes: bool = False): # type: ignore[name-defined]
+    def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional['winpty.PTY']=None, use_pipes: bool = False): # type: ignore[name-defined]
         self.use_pipes: bool = use_pipes
         
-        if self.use_pipes:
-            self.proc: asyncio.subprocess.Process = cast(asyncio.subprocess.Process, proc) # type: ignore[no-redef]
+        self.proc: Optional[asyncio.subprocess.Process] # type: ignore[no-redef]
         
-        if sys.platform != "win32":
+        if self.use_pipes:
+            self.proc= cast(asyncio.subprocess.Process, proc) # type: ignore[no-redef]
+        
+        if sys.platform != "win32" and not self.use_pipes:
             self.master_fd: int = cast(int, master_fd)
             self.pty = None 
-            self.proc: asyncio.subprocess.Process = cast(asyncio.subprocess.Process, proc) # type: ignore[no-redef]
-        else:
+            self.proc = cast(asyncio.subprocess.Process, proc) # type: ignore[no-redef]
+        elif sys.platform == "win32" and not self.use_pipes:
             self.master_fd = None
-            if is_conpty_available:
-                if isinstance(pty_obj, conpty.ConPTY): # type: ignore
-                    self.pty: conpty.ConPTY = cast(conpty.ConPTY, pty_obj) # pyright: ignore[reportAttributeAccessIssue, reportRedeclaration]
-            else:
-                self.pty: winpty.PTY = cast(winpty.PTY, pty_obj)
+            self.pty: winpty.PTY = cast(winpty.PTY, pty_obj)
             
-            self.proc = None # pyright: ignore[reportAttributeAccessIssue] # type: ignore[no-redef]
+            self.proc = None # pyright: ignore[reportAttributeAccessIssue] # type: ignore[no-redef, assignment]
 
     async def read(self, n=1024) -> dict[str, str]:
         loop = asyncio.get_running_loop()
         if self.use_pipes:
-            stdout_obj = cast(asyncio.StreamReader, self.proc.stdout)
-            stderr_obj = cast(asyncio.StreamReader, self.proc.stderr)
+            proc = cast(asyncio.subprocess.Process, self.proc)
+            stdout_obj = cast(asyncio.StreamReader, proc.stdout)
+            stderr_obj = cast(asyncio.StreamReader, proc.stderr)
             stdout = await stdout_obj.read(n)
             stderr = await stderr_obj.read(n)
             return {"stdout": stdout.decode("utf-8"), "stderr": stderr.decode("utf-8")}
         if sys.platform == "win32":
-            if is_conpty_available:
-                pty = cast(conpty.ConPTY, self.pty)
-                try:
-                    data = await pty.read_async()
-                    return {"stdout": data.decode("utf-8", errors="replace"), "stderr": ""}
-                except Exception:
-                    return {"stdout": "", "stderr": ""}
-            else:
-                # winpty
-                pty = cast(winpty.PTY, self.pty)
-                loop = asyncio.get_running_loop()
-                data = await loop.run_in_executor(None, lambda: pty.read())
-                return {"stdout": data, "stderr": ""}
+            # winpty
+            pty = cast(winpty.PTY, self.pty)
+            loop = asyncio.get_running_loop()
+            data = await loop.run_in_executor(None, lambda: pty.read())
+            return {"stdout": data, "stderr": ""}
         else:
             data = await loop.run_in_executor(None, os.read, self.master_fd, n)
             return {"stdout": data.decode("utf-8"), "stderr": ""}
@@ -710,7 +696,7 @@ class Terminal:
             os.close(self.master_fd)
             return
         else:
-            pty = cast(Union["winpty.PTY", "conpty.ConPTY"], self.pty)
+            pty = cast(winpty.PTY, self.pty)
             if sig == utils.Signal.TERMINATE:
                 os.kill(pty.pid, signal.CTRL_BREAK_EVENT) # pyright: ignore[reportArgumentType]
             elif sig == utils.Signal.KILL:
@@ -732,13 +718,8 @@ class Terminal:
         if sys.platform == "win32":
             if self.pty is None:
                 return
-            if is_conpty_available:
-                pty = cast(conpty.ConPTY, self.pty)
-                await pty.write_async(data.encode("utf-8"))
-                return
-            else:
-                pty = cast(winpty.PTY, self.pty)
-                await loop.run_in_executor(None, pty.write, data)
+            pty = cast(winpty.PTY, self.pty)
+            await loop.run_in_executor(None, pty.write, data)
         else:
             if self.master_fd is None:
                 return
@@ -750,10 +731,13 @@ class Terminal:
     
     @property
     def pid(self) -> int:
+        proc = cast(asyncio.subprocess.Process, self.proc)
+        if self.is_pipe:
+            return proc.pid
         if sys.platform == "win32":
             return self.pty.pid # pyright: ignore[reportReturnType]
         else:
-            return self.proc.pid
+            return proc.pid
 
 async def spawn_tty(command: list[str], disable_echo=True) -> Terminal:
     new_cwd = Path(args.cwd).expanduser().resolve().absolute()
@@ -765,31 +749,17 @@ async def spawn_tty(command: list[str], disable_echo=True) -> Terminal:
         # Convert command list to single string
         cmd_str = " ".join(command)
         
-        # Create ConPTY instance with environment and working directory
-        if is_conpty_available:
-            pty_obj = conpty.ConPTY( # pyright: ignore[reportPossiblyUnboundVariable]
-                command=cmd_str,
-                cols=80,
-                rows=24,
-                cwd=str(new_cwd),
-                env=env
-            )
-            
-            # Disable echo if requested
-            if disable_echo:
-                pty_obj.set_echo(False)
-        else:
-            pty_obj = winpty.PTY( # pyright: ignore[reportPossiblyUnboundVariable]
-                cols=80,
-                rows=24,
-            )
-            
-            pty_obj.spawn(
-                appname=cmd_str,
-                cmdline=cmd_str,
-                cwd=str(new_cwd),
-                env=env_str,
-            )
+        pty_obj = winpty.PTY( # pyright: ignore[reportPossiblyUnboundVariable]
+            cols=80,
+            rows=24,
+        )
+        
+        pty_obj.spawn(
+            appname=cmd_str,
+            cmdline=cmd_str,
+            cwd=str(new_cwd),
+            env=env_str,
+        )
             
             
         return Terminal(pty_obj=pty_obj)
@@ -1183,13 +1153,15 @@ async def end(request: Request):
     # Kill/close the terminal subprocess
     if sys.platform == "win32" and not term.is_pipe:
         try:
-            term.send_signal(utils.Signal.KILL)
+            await term.send_signal(utils.Signal.KILL)
         except Exception:
             pass
     elif sys.platform != "win32" and not term.is_pipe:
         try:
+            term = cast(Terminal, term)
+            proc = cast(asyncio.subprocess.Process, term.proc)
             await term.send_signal(utils.Signal.TERMINATE)
-            await term.proc.wait()
+            await proc.wait()
             os.close(term.master_fd)
         except Exception:
             pass
