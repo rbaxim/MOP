@@ -15,5 +15,3 @@ pat.txt
 gpush.sh
 .ruff_cache
 scripts
-ConPTYBridge/obj
-ConPTYBridge/bin/Debug
