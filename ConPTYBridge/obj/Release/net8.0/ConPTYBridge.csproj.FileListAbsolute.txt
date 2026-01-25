@@ -1,0 +1,12 @@
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\bin\Release\net8.0\ConPTYBridge.deps.json
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\bin\Release\net8.0\ConPTYBridge.dll
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\bin\Release\net8.0\ConPTYBridge.pdb
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\obj\Release\net8.0\ConPTYBridge.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\obj\Release\net8.0\ConPTYBridge.AssemblyInfoInputs.cache
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\obj\Release\net8.0\ConPTYBridge.AssemblyInfo.cs
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\obj\Release\net8.0\ConPTYBridge.csproj.CoreCompileInputs.cache
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\obj\Release\net8.0\ConPTYBridge.sourcelink.json
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\obj\Release\net8.0\ConPTYBridge.dll
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\obj\Release\net8.0\refint\ConPTYBridge.dll
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\obj\Release\net8.0\ConPTYBridge.pdb
+C:\Users\lucrd\OneDrive\Desktop\mop\ConPTYBridge\obj\Release\net8.0\ref\ConPTYBridge.dll
