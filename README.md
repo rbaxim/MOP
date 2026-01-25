@@ -25,6 +25,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 > Windows support partially exists but is extremely unstable
 > You may encounter random crashes and SSL issues
 > The winpty module does not allow MOP to enable/disable echo
+> My C# implementation parially works. I do not recommend using Windows
 
 1. Install Python (3.13 or 3.12 are recommended):
    - Debian/Ubuntu:

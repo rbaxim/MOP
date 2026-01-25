@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 rbaxim
 # Licensed under the Apache License, Version 2.0
-# See LICENSE file in the project root for details.
+# See LICENSE file in the project root for details
 """
 Modular Protocol Server
 """
@@ -22,10 +22,11 @@ import hashlib
 import json
 from pathlib import Path
 import importlib.util
-from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional
+from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional, Union
 import warnings
 from contextlib import asynccontextmanager
 import signal
+import shutil
 
 def is_frozen():
     return getattr(sys, 'frozen', False) or bool(getattr(sys, '_MEIPASS', []))
@@ -140,9 +141,9 @@ if not is_frozen() and __name__ == "__main__":
     
     if not Path("./moppy/pickles/pickle.jpeg").exists():
         print("[CRITICAL] pickle.jpeg is missing. attempting to boot without it. May fail with a extremely high chance")
-        time.sleep(0.5)
+        time.sleep(2)
         print(f"[CRITICAL] FAILED TO BOOT. STATUS CODE: {r"\xff\xfe\x00\x00C\x00\x00\x00O\x00\x00\x00M\x00\x00\x00P\x00\x00\x00L\x00\x00\x00E\x00\x00\x00T\x00\x00\x00E\x00\x00\x00 \x00\x00\x00F\x00\x00\x00A\x00\x00\x00I\x00\x00\x00L\x00\x00\x00U\x00\x00\x00R\x00\x00\x00E\x00\x00\x00'"}")
-        time.sleep(0.5)
+        time.sleep(2)
         print("ok jokes over. time to boot")
         
     required_packages = [
@@ -162,7 +163,10 @@ if not is_frozen() and __name__ == "__main__":
     if sys.platform != "win32":
         required_packages.append("uvloop")
     else:
-        required_packages.append("pywinpty")
+        required_packages.append("cffi")
+        required_packages.append("clr_loader")
+        required_packages.append("pythonnet")
+        required_packages.append("pycparser")
 
     # Check and install missing packages
     
@@ -331,7 +335,7 @@ if __name__ == "__main__":
     safe_core_plugins = core_plugins.copy()
     for name, plugin in safe_core_plugins.items():
         runtime = plugin["runtime"]
-        runtime = runtime.format(location=plugin["location"])
+        runtime = runtime.format(location=plugin["location"], port=plugin["port"] if plugin["port"] else "", host=args.host)
         current_cwd = os.getcwd()
         mop_cwd = os.path.join(current_cwd, "moppy")
         
@@ -414,8 +418,15 @@ if sys.platform == "win32":
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # pyright: ignore[reportAttributeAccessIssue] Stub doesnt have it yet
 
+IS_CONPTY_AVAILABLE = False
 if sys.platform == "win32":
-    import winpty # pyright: ignore[reportMissingImports]
+    try:
+        import ConPTYBridge.conpty as conpty
+        IS_CONPTY_AVAILABLE = True
+        conpty_dll_path = Path("./ConPTYBridge/bin/Release/net8.0/ConPTYBridge.dll")
+    except ImportError:
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     You are not using my C# ConPTY wrapper for python. It is heavily recommended you install/build it for extra features")
+        import winpty # pyright: ignore[reportMissingImports]
 else:
     import termios
     import pty as unixpty
@@ -591,6 +602,31 @@ rate_limit_handler = cast(
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
 
+async def normalize_command(command: list[str]) -> list[str]:
+    exe = command[0]
+
+    p = Path(exe)
+
+    # If already absolute, keep it
+    if p.is_absolute():
+        resolved = p
+    else:
+        # Resolve via PATH like the OS would
+        found = shutil.which(exe)
+        if not found:
+            raise FileNotFoundError(f"Executable not found in PATH: {exe}")
+        resolved = Path(found)
+
+    # Canonicalize
+    resolved = resolved.resolve()
+
+    # Replace command[0] with absolute path
+    command = command.copy()
+    command[0] = str(resolved)
+    
+    return command
+
+
 async def write(data: str, key: str):
     if key not in sessions:
         return {"status": "MOP transaction not started", "code": 1}, 428
@@ -623,7 +659,7 @@ async def read_stdout(key: str):
     return data[len(data) - 1]
 
 class Terminal:
-    def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional['winpty.PTY']=None, use_pipes: bool = False): # type: ignore[name-defined]
+    def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional['winpty.PTY', "conpty.ConPTYInstance"]=None, use_pipes: bool = False): # type: ignore[name-defined, valid-type]
         self.use_pipes: bool = use_pipes
         
         self.proc: Optional[asyncio.subprocess.Process] # type: ignore[no-redef]
@@ -636,10 +672,15 @@ class Terminal:
             self.pty = None 
             self.proc = cast(asyncio.subprocess.Process, proc) # type: ignore[no-redef]
         elif sys.platform == "win32" and not self.use_pipes:
-            self.master_fd = None
-            self.pty: winpty.PTY = cast(winpty.PTY, pty_obj)
-            
-            self.proc = None # pyright: ignore[reportAttributeAccessIssue] # type: ignore[no-redef, assignment]
+            if IS_CONPTY_AVAILABLE:
+                self.master_fd = None
+                self.pty: conpty.ConPTYClient = cast(conpty.ConPTYClient, pty_obj) # pyright: ignore[reportRedeclaration]
+                self.proc = None # pyright: ignore[reportAttributeAccessIssue] # type: ignore[no-redef, assignment]
+            else:
+                self.master_fd = None
+                self.pty: winpty.PTY = cast(winpty.PTY, pty_obj)
+                
+                self.proc = None # pyright: ignore[reportAttributeAccessIssue] # type: ignore[no-redef, assignment]
 
     async def read(self, n=1024) -> dict[str, str]:
         loop = asyncio.get_running_loop()
@@ -651,11 +692,18 @@ class Terminal:
             stderr = await stderr_obj.read(n)
             return {"stdout": stdout.decode("utf-8"), "stderr": stderr.decode("utf-8")}
         if sys.platform == "win32":
-            # winpty
-            pty = cast(winpty.PTY, self.pty)
-            loop = asyncio.get_running_loop()
-            data = await loop.run_in_executor(None, lambda: pty.read())
-            return {"stdout": data, "stderr": ""}
+            if IS_CONPTY_AVAILABLE:
+                # ConPTY
+                pty = cast(conpty.ConPTYClient, self.pty)
+                loop = asyncio.get_running_loop()
+                data = await loop.run_in_executor(None, lambda: pty.read(n))
+                return {"stdout": data.decode("utf-8"), "stderr": ""}
+            else:
+                # winpty
+                pty = cast(winpty.PTY, self.pty)
+                loop = asyncio.get_running_loop()
+                data = await loop.run_in_executor(None, lambda: pty.read())
+                return {"stdout": data, "stderr": ""}
         else:
             data = await loop.run_in_executor(None, os.read, self.master_fd, n)
             return {"stdout": data.decode("utf-8"), "stderr": ""}
@@ -696,7 +744,7 @@ class Terminal:
             os.close(self.master_fd)
             return
         else:
-            pty = cast(winpty.PTY, self.pty)
+            pty = cast(Union["winpty.PTY", "conpty.ConPTYClient"], self.pty)
             if sig == utils.Signal.TERMINATE:
                 os.kill(pty.pid, signal.CTRL_BREAK_EVENT) # pyright: ignore[reportArgumentType]
             elif sig == utils.Signal.KILL:
@@ -717,6 +765,10 @@ class Terminal:
             return
         if sys.platform == "win32":
             if self.pty is None:
+                return
+            if IS_CONPTY_AVAILABLE:
+                pty = cast(conpty.ConPTYClient, self.pty)
+                await loop.run_in_executor(None, pty.write, data.encode())
                 return
             pty = cast(winpty.PTY, self.pty)
             await loop.run_in_executor(None, pty.write, data)
@@ -744,25 +796,35 @@ async def spawn_tty(command: list[str], disable_echo=True) -> Terminal:
     if sys.platform == "win32":
         
         # Format environment variables as null-terminated string
-        env_str = "\0".join(f"{k}={v}" for k, v in env.items()) + "\0\0"
-        
-        # Convert command list to single string
-        cmd_str = " ".join(command)
-        
-        pty_obj = winpty.PTY( # pyright: ignore[reportPossiblyUnboundVariable]
-            cols=80,
-            rows=24,
-        )
-        
-        pty_obj.spawn(
-            appname=cmd_str,
-            cmdline=cmd_str,
-            cwd=str(new_cwd),
-            env=env_str,
-        )
+        if IS_CONPTY_AVAILABLE:
+            pty_obj = conpty.ConPTYClient(dll_path=str(conpty_dll_path.absolute())) # pyright: ignore[reportPossiblyUnboundVariable]
+            command = await normalize_command(command) # Get absolute path for exe
+            new_cmd = subprocess.list2cmdline(command)
+            flags = 0x04
+            if disable_echo:
+                flags = 0
+            pty_obj.start(str(new_cmd), 80, 24, flags, str(new_cwd), env)
+            return Terminal(pty_obj=pty_obj)
+        else:
+            env_str = "\0".join(f"{k}={v}" for k, v in env.items()) + "\0\0"
             
+            # Convert command list to single string
+            cmd_str = " ".join(command)
             
-        return Terminal(pty_obj=pty_obj)
+            pty_obj = winpty.PTY( # pyright: ignore[reportPossiblyUnboundVariable]
+                cols=80,
+                rows=24,
+            )
+            
+            pty_obj.spawn(
+                appname=cmd_str,
+                cmdline=cmd_str,
+                cwd=str(new_cwd),
+                env=env_str,
+            )
+                
+                
+            return Terminal(pty_obj=pty_obj)
     else:
         master_fd, slave_fd = unixpty.openpty()
         proc = await asyncio.create_subprocess_exec(
@@ -872,7 +934,7 @@ async def init(request: Request):
     sessions[hashed_key] = {"tty": process_handle, "command": command, "buffers": {"stdout": [], "stderr": []}, "tags": [], "mode": "pty" if use_pipe else "pipe"}
     sessions[hashed_key]["task_out"] = asyncio.create_task(OUT_reader(default_key=hashed_key))
     if pub_key not in sessions and not args.no_pub_process:
-        pub_process_handle: Terminal = await spawn_tty(command)
+        pub_process_handle: Terminal = await spawn_tty(app.state.command, not echo)
         sessions[pub_key] = {"tty": pub_process_handle, "command": command, "buffer": [], "queue": asyncio.Queue(), "tags": ["public"], "mode": "pty"}
         sessions[pub_key]["task_out"] = asyncio.create_task(OUT_reader(default_key=pub_key))
         sessions[pub_key]["task_in"] = asyncio.create_task(IN_pub_writer())
@@ -1264,7 +1326,12 @@ async def ping(request: Request):
     
     # Check if process is alive
     if sys.platform == "win32":
-        is_alive = term.pty.isalive()
+        if IS_CONPTY_AVAILABLE:
+            pty = cast(conpty.ConPTYClient, term.pty)
+            is_alive = pty.is_alive()
+        else:
+            pty = cast(winpty.PTY, term.pty)
+            is_alive = pty.is_alive()
     else:
         is_alive = term.proc.returncode is None
     
@@ -1353,7 +1420,6 @@ if __name__ == "__main__" and not is_uvicorn():
         ssl_keyfile=ssl_key if args.ssl else None,
         ssl_certfile=ssl_cert if args.ssl else None,
         workers=args.workers,
-        
     )
     server: uvicorn.Server = uvicorn.Server(config=config)
     try:

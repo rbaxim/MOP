@@ -33,4 +33,4 @@ EXPOSE 8000
 # Set default command
 ENTRYPOINT ["/root/.local/bin/uv", "run", "mop.py"]
 
-CMD ["--port", "8000", "--force-port"]
+CMD ["--port", "8000", "--force-port", "--host", "0.0.0.0"]
