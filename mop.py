@@ -24,7 +24,6 @@ from pathlib import Path
 import importlib.util
 from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional, Union
 import warnings
-from contextlib import asynccontextmanager
 import signal
 import shutil
 
@@ -39,7 +38,7 @@ def is_uv_available() -> bool:
         return False
     
 def get_certs():
-    cert_dir = Path("./mop/certs")
+    cert_dir = Path("./moppy/certs")
     ssl_cert, ssl_key = None, None
     
     if any(cert_dir.glob("*.key")):
@@ -53,7 +52,7 @@ def get_certs():
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found KEY and CERTIFICATE")
             return ssl_cert, ssl_key
         else:
-            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /mop/certs")
+            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /moppy/certs")
         
         
     
@@ -67,7 +66,7 @@ def get_certs():
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found CERTIFICATE")
         
     if not ssl_cert or not ssl_key:
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /mop/certs")
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /moppy/certs")
     return ssl_cert, ssl_key
     
 uv = is_uv_available()
@@ -295,6 +294,21 @@ def steal_port(port):
         elif not is_killed: # Confusing logic, i know
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process.")
             
+pem_count = 0
+
+for i in Path("./moppy/certs/").glob("*.pem"):
+    pem_count += 1
+
+is_ssl_certs_exists = pem_count >= 1            
+
+if args.ssl and not is_ssl_certs_exists:
+    print(f"{Fore.RED}ERROR{Fore.RESET}:     .pem or .key file missing in /moppy/certs")
+    prompt = input(f"{Fore.YELLOW}WARNING{Fore.RESET}:     Generate new SSL certificates? (y/n): ")
+    if prompt.lower() != "y":
+        print(f"{Fore.YELLOW}INFO{Fore.RESET}:     Exiting... Remove --ssl to disable SSL.")
+        sys.exit(1)
+    os.system(sys.executable + " ./moppy/ssl_certs.py")            
+
 if __name__ == "__main__":
     global core_plugins
     core_plugins = {}        
@@ -347,7 +361,7 @@ if __name__ == "__main__":
             cmd.append("--ssl-certfile")
             cmd.append(str(Path(cert).absolute()))
             cmd.append("--ssl-keyfile")
-            cmd.append(str(Path(cert).absolute()))
+            cmd.append(str(Path(key).absolute()))
         core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd)
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting core plugin:", name + f" at port {plugin['port']}" if plugin["port"] else "")
         
@@ -428,7 +442,7 @@ if sys.platform == "win32":
         print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     You are not using my C# ConPTY wrapper for python. It is heavily recommended you install/build it for extra features")
         import winpty # pyright: ignore[reportMissingImports]
 else:
-    import termios
+    import fcntl
     import pty as unixpty
     
 env = os.environ.copy()
@@ -490,20 +504,6 @@ sys.stderr = cast(TextIO, new_stderr)
 
 command = shlex.split(args.cmd)
 pub_key = secrets.token_hex(128)
-pem_count = 0
-
-for i in Path("./moppy/certs/").glob("*.pem"):
-    pem_count += 1
-
-is_ssl_certs_exists = pem_count >= 1
-
-if args.ssl and not is_ssl_certs_exists:
-    print(f"{Fore.RED}ERROR{Fore.RESET}:     .pem or .key file missing in /moppy/certs")
-    prompt = input(f"{Fore.YELLOW}WARNING{Fore.RESET}:     Generate new SSL certificates? (y/n): ")
-    if prompt.lower() != "y":
-        print(f"{Fore.YELLOW}INFO{Fore.RESET}:     Exiting... Remove --ssl to disable SSL.")
-        sys.exit(1)
-    os.system(sys.executable + " ./moppy/ssl_certs.py")
 
 global app
 
@@ -514,28 +514,7 @@ def create_app(command: list[str]):
 
 app: FastAPI = create_app(command)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Start
-    yield
-    # End
-    for name, plugin in core_plugins.items():
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Terminating plugin {name}")
-        handle: subprocess.Popen = cast(subprocess.Popen, plugin["handle"])
-        handle.terminate()
-        start = time.time()
-        while handle.poll() is None:
-            if time.time() - start > 5:
-                # Escalate: force kill
-                print(f"{Fore.RED}WARNING{Fore.RESET}:     Plugin {name} is unresponsive. Killing.")
-                handle.kill()
-                break
-            time.sleep(0.1)  # small sleep to avoid busy-waiting
-        
-        handle.wait()
-        
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Plugin {name} terminated")
-        
+app.state.lifespan_ran = False
 
 app.state.start_time = time.monotonic()
 app.state.pepper =  b""
@@ -652,12 +631,12 @@ async def write(data: str, key: str):
 
 async def read_stdout(key: str):
     # Just for websocket's sake
-    data = await sessions[key]["buffer"].get("stdout", "")
-    if len(data) == 0:
+    data: utils.ByteLimitedLog = await sessions[key]["buffer"].get("stdout", "")
+    new_data: list = [utf8_buffer.decode("utf-8") for utf8_buffer in data.buffer()]
+    if len(new_data) == 0:
         return ""
     
-    return data[len(data) - 1]
-
+    return new_data[len(new_data) - 1]
 class Terminal:
     def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional['winpty.PTY', "conpty.ConPTYInstance"]=None, use_pipes: bool = False): # type: ignore[name-defined, valid-type]
         self.use_pipes: bool = use_pipes
@@ -671,6 +650,11 @@ class Terminal:
             self.master_fd: int = cast(int, master_fd)
             self.pty = None 
             self.proc = cast(asyncio.subprocess.Process, proc) # type: ignore[no-redef]
+            self._read_buffer = bytearray()
+            self._loop = asyncio.get_running_loop()
+            self._closed = False
+
+            self._loop.add_reader(self.master_fd, self._on_pty_readable)
         elif sys.platform == "win32" and not self.use_pipes:
             if IS_CONPTY_AVAILABLE:
                 self.master_fd = None
@@ -681,6 +665,20 @@ class Terminal:
                 self.pty: winpty.PTY = cast(winpty.PTY, pty_obj)
                 
                 self.proc = None # pyright: ignore[reportAttributeAccessIssue] # type: ignore[no-redef, assignment]
+                
+    def _on_pty_readable(self):
+        try:
+            data = os.read(self.master_fd, 4096)
+            if not data:
+                # EOF
+                self.close()
+                return
+            self._read_buffer.extend(data)
+        except BlockingIOError:
+            return
+        except OSError:
+            self.close()
+
 
     async def read(self, n=1024) -> dict[str, str]:
         loop = asyncio.get_running_loop()
@@ -705,9 +703,17 @@ class Terminal:
                 data = await loop.run_in_executor(None, lambda: pty.read())
                 return {"stdout": data, "stderr": ""}
         else:
-            data = await loop.run_in_executor(None, os.read, self.master_fd, n)
+            while not self._read_buffer and not self._closed:
+                await asyncio.sleep(0)  # yield to loop
+
+            if self._closed:
+                return {"stdout": "", "stderr": ""}
+
+            data = bytes(self._read_buffer[:n])
+            del self._read_buffer[:n]
             return {"stdout": data.decode("utf-8"), "stderr": ""}
-            
+        
+        return {"stdout": "", "stderr": ""}
     async def send_signal(self, sig: utils.Signal) -> None: # pyright: ignore[reportAttributeAccessIssue]
         loop = asyncio.get_running_loop()
 
@@ -736,12 +742,13 @@ class Terminal:
             }
             
             unix_sig = UNIX_SIGNAL_MAP[sig]
-            
-            await loop.run_in_executor(
-                None, os.killpg, os.getpgid(self.proc.pid), unix_sig
-            )
-            
-            os.close(self.master_fd)
+            try:
+                await loop.run_in_executor(
+                    None, os.killpg, os.getpgid(self.proc.pid), unix_sig
+                )
+            except Exception:
+                print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to send signal to {self.proc.pid}. Process unexepectedly died?")
+                pass
             return
         else:
             pty = cast(Union["winpty.PTY", "conpty.ConPTYClient"], self.pty)
@@ -751,9 +758,30 @@ class Terminal:
                 os.kill(pty.pid, signal.SIGTERM) # pyright: ignore[reportArgumentType]
             elif sig == utils.Signal.INTERRUPT:
                 os.kill(pty.pid, signal.CTRL_C_EVENT) # pyright: ignore[reportArgumentType] # Windows here
+                
+                
+    async def _wait_writable(self, fd, timeout=5.0):
+        """Properly wait for a file descriptor to become writable"""
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        
+        def _on_writable():
+            loop.remove_writer(fd)
+            if not future.done():
+                future.set_result(None)
+        
+        loop.add_writer(fd, _on_writable)
+        try:
+            await asyncio.wait_for(future, timeout)
+        except asyncio.TimeoutError:
+            loop.remove_writer(fd)
+            raise TimeoutError(f"Write operation timed out after {timeout}s")
+        finally:
+            loop.remove_writer(fd)
+
         
 
-    async def write(self, data: str) -> None:
+    async def write(self, data: str, timeout=5.0) -> None:
         loop = asyncio.get_running_loop()
         if self.proc is None:
             return
@@ -763,7 +791,9 @@ class Terminal:
             stdin_obj.write(data.encode())
             await stdin_obj.drain()
             return
+            
         if sys.platform == "win32":
+            # Windows implementation remains unchanged
             if self.pty is None:
                 return
             if IS_CONPTY_AVAILABLE:
@@ -773,9 +803,74 @@ class Terminal:
             pty = cast(winpty.PTY, self.pty)
             await loop.run_in_executor(None, pty.write, data)
         else:
-            if self.master_fd is None:
+            if getattr(self, '_closed', False):
                 return
-            await loop.run_in_executor(None, os.write, self.master_fd, data.encode())
+                
+            buf = memoryview(data.encode("utf-8"))
+            start_time = asyncio.get_running_loop().time()
+            MAX_WRITE_TIME = 2.0  # Critical timeout
+            
+            while buf:
+                # Timeout protection - bail out if stuck
+                if asyncio.get_running_loop().time() - start_time > MAX_WRITE_TIME:
+                    logging.warning("Terminal write timed out - aborting")
+                    break
+                    
+                try:
+                    n = os.write(self.master_fd, buf)
+                    buf = buf[n:]
+                except BlockingIOError:
+                    # Proper async wait with timeout
+                    try:
+                        await asyncio.wait_for(
+                            self._wait_writable(self.master_fd),
+                            timeout=0.5
+                        )
+                        print("BlockingIOError catched. Retrying write...")
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        print("Write Timeout exceeded")
+                        break  # Give up and continue shutdown
+                except (OSError, ValueError) as e:
+                    logging.error(f"Terminal write error: {e}")
+                    self.close()
+                    break
+            
+    def close(self) -> None:
+        # FIX: Set _closed flag before closing resources
+        self._closed = True
+        
+        if self.use_pipes:
+            proc = cast(asyncio.subprocess.Process, self.proc)
+            if proc:
+                proc.terminate()
+            return
+            
+        if sys.platform == "win32":
+            if IS_CONPTY_AVAILABLE and hasattr(self, 'pty') and self.pty:
+                pty = cast(conpty.ConPTYClient, self.pty)
+                pty.close()
+            elif hasattr(self, 'pty') and self.pty:
+                pty = cast(winpty.PTY, self.pty)
+                pty.close()
+        else:
+            # FIX: Remove reader before closing fd
+            if hasattr(self, '_loop') and hasattr(self, 'master_fd') and self.master_fd:
+                try:
+                    self._loop.remove_reader(self.master_fd)
+                except Exception:
+                    pass
+                    
+            if hasattr(self, 'master_fd') and self.master_fd:
+                try:
+                    os.close(self.master_fd)
+                except OSError:
+                    pass
+                    
+            if self.proc:
+                try:
+                    self.proc.terminate()
+                except Exception:
+                    pass
             
     @property
     def is_pipe(self) -> bool:
@@ -835,13 +930,11 @@ async def spawn_tty(command: list[str], disable_echo=True) -> Terminal:
             stderr=slave_fd,
             close_fds=True,
             cwd=str(new_cwd),
-            preexec_fn=os.setsid
+            preexec_fn=lambda: utils.preexec(slave_fd, disable_echo)
         )
-        
-        if disable_echo:
-            attrs = termios.tcgetattr(slave_fd)
-            attrs[3] = attrs[3] & ~(termios.ECHO | termios.ECHONL)  # disable echo
-            termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
+            
+        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
         
         os.close(slave_fd)
         return Terminal(proc=proc, master_fd=master_fd)
@@ -880,13 +973,13 @@ async def init(request: Request):
         process_handle = await spawn_pipe(command)
     
     
-    async def OUT_reader(default_key) -> None:
-        buffers: dict[str, list[str]] = sessions[default_key]["buffers"]
-        tty: Terminal = sessions[default_key]["tty"]  # should store Terminal object
-            
+    async def OUT_reader(default_key: str) -> None:
+        buffers: dict[str, utils.ByteLimitedLog] = sessions[default_key]["buffers"]
+        tty: Terminal = sessions[default_key]["tty"]
+
         ANSI_CONTROL_RE: re.Pattern = re.compile(
             r'\x1b(?:'              # ESC
-                r'(?!\[[0-9;]*m)'   # negative lookahead: skip SGR sequences
+                r'(?!\[[0-9;]*m)'   # skip SGR sequences
                 r'\[[?0-9;]*[A-Za-z]'  # CSI sequences
                 r'|[@-Z\\-_]'       # non-CSI sequences
             r')'
@@ -894,50 +987,53 @@ async def init(request: Request):
 
         while True:
             try:
+                # Unix: detect process exit if not using pipes
+                if sys.platform != "win32" and not tty.is_pipe and tty.proc:
+                    if tty.proc.returncode is not None:
+                        buffers["stdout"].append(f"[PROCESS EXITED with code {tty.proc.returncode}]")
+                        break
+
                 data: dict[str, str] = await tty.read()
                 if not data:
-                    await asyncio.sleep(0.01)
+                    # just yield control, no busy-loop sleep
+                    await asyncio.sleep(0)
                     continue
-                
-                if not isinstance(data, dict):
-                    await asyncio.sleep(0.01)
-                    continue
-        
-                stdout: str | bytes = data.get("stdout", "[ERROR reading stdout]")
-                stderr: str | bytes = data.get("stderr", "[ERROR reading stderr]")
-                
-                if isinstance(stdout, bytes):
-                    stdout = stdout.decode("utf-8")
-                if isinstance(stderr, bytes):
-                    stderr = stderr.decode("utf-8")
-                    
+
+                stdout = data.get("stdout", "[ERROR reading stdout]")
+                stderr = data.get("stderr", "[ERROR reading stderr]")
+
                 if not use_pipe:
                     stdout = ANSI_CONTROL_RE.sub('', stdout)
                     stderr = ANSI_CONTROL_RE.sub('', stderr)
-                # Decode and append each character chunk            
+
                 buffers["stdout"].append(stdout)
                 buffers["stderr"].append(stderr)
+
             except Exception as e:
                 buffers["stdout"].append(f"[ERROR reading stdout: {e}]")
                 break
             
-    async def IN_pub_writer():
+    async def IN_pub_writer(pub_key: str):
+        tty: Terminal = sessions[pub_key]["tty"]
+        queue: asyncio.Queue[str] = sessions[pub_key]["queue"]
+
         while True:
-            data = await sessions[pub_key]["queue"].get()
+            data = await queue.get()
             try:
-                await write(data, pub_key)
+                # Terminal.write should be async and non-blocking
+                await tty.write(data)
             except Exception as e:
                 logging.error(f"[ERROR writing stdin: {e}]")
             finally:
-                sessions[pub_key]["queue"].task_done()
-    
-    sessions[hashed_key] = {"tty": process_handle, "command": command, "buffers": {"stdout": [], "stderr": []}, "tags": [], "mode": "pty" if use_pipe else "pipe"}
+                queue.task_done()
+
+    sessions[hashed_key] = {"tty": process_handle, "command": command, "buffers": {"stdout": utils.ByteLimitedLog(), "stderr": utils.ByteLimitedLog()}, "tags": [], "mode": "pty" if use_pipe else "pipe"}
     sessions[hashed_key]["task_out"] = asyncio.create_task(OUT_reader(default_key=hashed_key))
     if pub_key not in sessions and not args.no_pub_process:
         pub_process_handle: Terminal = await spawn_tty(app.state.command, not echo)
         sessions[pub_key] = {"tty": pub_process_handle, "command": command, "buffer": [], "queue": asyncio.Queue(), "tags": ["public"], "mode": "pty"}
         sessions[pub_key]["task_out"] = asyncio.create_task(OUT_reader(default_key=pub_key))
-        sessions[pub_key]["task_in"] = asyncio.create_task(IN_pub_writer())
+        sessions[pub_key]["task_in"] = asyncio.create_task(IN_pub_writer(pub_key=pub_key))
     attic_out = ""
     if attic:
         try:
@@ -1177,10 +1273,16 @@ async def signalButRequest(request: Request):
     
     try:
         await sessions[hashed_key]["tty"].send_signal(signal_map[signal])
+        cast(asyncio.Task, sessions[hashed_key]["task_out"]).cancel()
+        cast(Terminal, sessions[hashed_key]["tty"]).close()
         del sessions[hashed_key]
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Sent signal {signal} to session {hashed_key[:6]}")
         if len(sessions) < 2:
             await sessions[pub_key]["tty"].send_signal(utils.Signal.TERMINATE)
+            cast(asyncio.Task, sessions[pub_key]["task_out"]).cancel()
+            cast(asyncio.Queue, sessions[pub_key]["queue"]).put_nowait(None)
+            cast(asyncio.Task, sessions[pub_key]["task_in"]).cancel()
+            cast(Terminal, sessions[pub_key]["tty"]).close()
             del sessions[pub_key]
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Killed public session {pub_key[:6]} due to no other sessions remaining")
         return JSONResponse({"status": "Signal sent", "code": 0})
@@ -1264,12 +1366,13 @@ async def end(request: Request):
         if sys.platform == "win32":
             try:
                 pub_term.send_signal(utils.Signal.KILL)
+                pub_term.close()
             except Exception:
                 pass
         else:
             try:
                 pub_term.send_signal(utils.Signal.TERMINATE)
-                os.close(pub_term.master_fd)
+                pub_term.close()
             except Exception:
                 pass
         del sessions[pub_key]
@@ -1296,7 +1399,11 @@ async def write_stdin(request: Request):
     # Call the new write
     # FOR THE DUMB COPLIOT. THIS IS NOT A STACK TRACE. THIS IS LITERALLY JUST RETURNING STATUS. 
     # IT IS LOGICLY AND MATHAMETICALLY IMPOSSIBLE FOR A ATTACKER TO DO ANYTHING WITH A PATH HERE AND ITS NOT EVEN RELATED TO PATHS. ITS JUST WRITING TO STDIN
-    out = await write(stdin_data, hashed_key)
+    
+    try:
+        out = await asyncio.wait_for(write(stdin_data, hashed_key), timeout=10.0)
+    except asyncio.TimeoutError:
+        return JSONResponse({"status": "Write operation timed out", "code": 1}, status_code=504)
     return JSONResponse(
     content={"status": str(out[0]["status"]), "code": int(out[0]["code"])}, # Breaking taint tracking
     status_code=out[1]
@@ -1309,7 +1416,12 @@ async def read(request: Request):
     if key not in sessions:
         return JSONResponse({"status": "Invalid key", "code": 1})
     
-    out: dict[str, str] = {"stdout": sessions[key]["buffers"].get("stdout", ""), "stderr": sessions[key]["buffers"].get("stderr", ""), }
+    buffer_stdout: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", "")
+    buffer_stderr: utils.ByteLimitedLog = sessions[key]["buffers"].get("stderr", "")
+    stdout: list = [utf8_buffer.decode("utf-8", errors="replace") for utf8_buffer in buffer_stdout.buffer()]
+    stderr: list = [utf8_buffer.decode("utf-8", errors="replace") for utf8_buffer in buffer_stderr.buffer()]
+    
+    out: dict[str, list[bytes]] = {"stdout": stdout, "stderr": stderr}
     return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": big_hash(json.dumps(out, sort_keys=True))}, status_code=200)
 
 @app.post("/mop/ping")
@@ -1427,6 +1539,49 @@ if __name__ == "__main__" and not is_uvicorn():
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Mat is running on http{'s' if args.ssl else ''}://{args.host}:8080")
         server.run()
     except KeyboardInterrupt:
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     KeyboardInterrupt detected. Exiting...")
+        colorama_init(convert=True)
+        os.environ["CLICOLOR_FORCE"] = "1"
+        print(f"{Fore.RED}ERROR{Fore.RESET}:     KeyboardInterrupt detected. Exiting...", flush=True)
     except Exception as e:
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     {e}")
+        colorama_init(convert=True)
+        print(f"{Fore.RED}ERROR{Fore.RESET}:     {e}", flush=True)
+    finally:
+        colorama_init(convert=True)
+        os.environ["CLICOLOR_FORCE"] = "1"
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting shutdown of core plugins...", flush=True)
+        for name, plugin in core_plugins.items(): # pyright: ignore[reportPossiblyUnboundVariable]
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Terminating plugin {name}")
+            handle = cast(subprocess.Popen, plugin["handle"])
+            handle.terminate()
+            start = time.time()
+            while handle.poll() is None:
+                if time.time() - start > 5:
+                    # Escalate: force kill
+                    print(f"{Fore.RED}WARNING{Fore.RESET}:     Plugin {name} is unresponsive. Killing.")
+                    handle.kill()
+                    break
+                time.sleep(0.1)  # small sleep to avoid busy-waiting
+            
+            handle.wait()
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Plugin {name} terminated")
+            
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Core plugins shutdown complete.")
+        if IS_CONPTY_AVAILABLE:
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting .NET shutdown...")
+            for session in sessions.values():
+                term = cast(Terminal,session["tty"])
+                pty = cast(conpty.ConPTYClient, term.pty) # type: ignore[name-defined]
+                if isinstance(term.pty, conpty.ConPTYClient): # type: ignore[name-defined]
+                    try:
+                        pty.close() # pyright: ignore[reportAttributeAccessIssue, reportPossiblyUnboundVariable] # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    print(f"{Fore.GREEN}INFO{Fore.RESET}:     .NET ConPTY session {pty.pid} closed.")
+        else:
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Shutting down terminal sessions...")
+            for session in sessions.values():
+                term = cast(Terminal,session["tty"])
+                term.close()
+                print(f"{Fore.GREEN}INFO{Fore.RESET}:     Terminal session {term.pid} closed.")
+                
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Server shutdown complete.")

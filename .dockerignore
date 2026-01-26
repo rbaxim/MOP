@@ -10,3 +10,4 @@ pat.txt
 *.ignore
 gpush.sh
 .ruff_cache
+ConPTYBridge

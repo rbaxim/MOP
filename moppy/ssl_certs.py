@@ -32,10 +32,11 @@ def generate_cert(domains: list[str]):
     KEY_PATH.write_bytes(
         private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
     )
+
 
     san_entries: list[x509.GeneralName] = []
 
@@ -63,7 +64,7 @@ def generate_cert(domains: list[str]):
             critical=False,
         )
         .add_extension(
-            x509.BasicConstraints(ca=True, path_length=None),
+            x509.BasicConstraints(ca=False, path_length=None),
             critical=True,
         )
         .sign(private_key, hashes.SHA256())

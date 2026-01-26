@@ -1,5 +1,10 @@
-﻿using System;
+﻿// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 rbaxim
+// Licensed under the Apache License, Version 2.0
+// See LICENSE file in the project root for details
+using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -76,21 +81,36 @@ namespace Moppy.ConPTY
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern void DeleteProcThreadAttributeList(IntPtr lpAttributeList);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern void CloseHandle(IntPtr hObject);
+
         // --- 3. Fields & Properties ---
         private IntPtr _hPC = IntPtr.Zero;
         private FileStream? _writer;
         private FileStream? _reader;
+
+        private readonly BlockingCollection<byte[]> _writeQueue = new();
+
+        private readonly ConcurrentQueue<byte[]> _readQueue = new();
         
         public int Pid { get; private set; }
         public IntPtr _hProcess = IntPtr.Zero;
         public string Cwd { get; set; } = Directory.GetCurrentDirectory();
         public Dictionary<string, string> EnvVars { get; set; } = new Dictionary<string, string>();
 
+        private bool _readerFailed = false;
+
         // Constructor
         public ConPTYInstance(SafeFileHandle writeEnd, SafeFileHandle readEnd)
         {
-            _writer = new FileStream(writeEnd, FileAccess.Write);
-            _reader = new FileStream(readEnd, FileAccess.Read);
+            _writer = new FileStream(writeEnd, FileAccess.Write, 4096, isAsync: true);
+            _reader = new FileStream(readEnd, FileAccess.Read, 4096, isAsync: true);
+
+            StartWriterThread();
+            StartReaderThread();
         }
 
         // --- 4. Logic Methods ---
@@ -141,6 +161,8 @@ namespace Moppy.ConPTY
 
             // Init attribute list
             IntPtr lpSize = IntPtr.Zero;
+            IntPtr hPCValue = Marshal.AllocHGlobal(IntPtr.Size);
+            Marshal.WriteIntPtr(hPCValue, _hPC);
             InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref lpSize);
             si.lpAttributeList = Marshal.AllocHGlobal(lpSize);
 
@@ -151,8 +173,8 @@ namespace Moppy.ConPTY
                     si.lpAttributeList,
                     0,
                     (IntPtr)PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-                    _hPC,
-                    (IntPtr)IntPtr.Size,
+                    hPCValue,
+                    IntPtr.Size,
                     IntPtr.Zero,
                     IntPtr.Zero))
             {
@@ -230,6 +252,7 @@ namespace Moppy.ConPTY
                 out pi
             );
 
+
             if (!ok)
             {
                 int err = Marshal.GetLastWin32Error();
@@ -243,37 +266,73 @@ namespace Moppy.ConPTY
 
             this.Pid = pi.dwProcessId;
             this._hProcess = pi.hProcess;
+
+            CloseHandle(pi.hThread);
+
+            DeleteProcThreadAttributeList(si.lpAttributeList);
+            Marshal.FreeHGlobal(si.lpAttributeList);
+            Marshal.FreeHGlobal(hPCValue);
         }
 
-
-        public void Write(byte[] data) 
+        private void StartWriterThread()
         {
-            if (_writer == null) return;
-            
-            _writer.Write(data, 0, data.Length);
-            _writer.Flush(); 
-        }
-
-        public byte[] Read(int bufferSize = 4096)
-        {
-            if (_reader == null) return Array.Empty<byte>();
-
-            // 1. Check if there is actually data waiting in the pipe
-            if (!PeekNamedPipe(_reader.SafeFileHandle, IntPtr.Zero, 0, IntPtr.Zero, out uint bytesAvailable, IntPtr.Zero))
+            var t = new Thread(() =>
             {
-                return Array.Empty<byte>(); 
-            }
+                foreach (var data in _writeQueue.GetConsumingEnumerable())
+                {
+                    try
+                    {
+                        _writer!.Write(data, 0, data.Length);
+                        _writer.Flush();
+                    }
+                    catch { break; }
+                }
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
 
-            // 2. If no bytes are available, return immediately to Python (No Hang!)
-            if (bytesAvailable == 0) return Array.Empty<byte>();
+        private void StartReaderThread()
+        {
+            var t = new Thread(() =>
+            {
+                var buf = new byte[8192];
+                while (true)
+                {
+                    try
+                    {
+                        int n = _reader!.Read(buf, 0, buf.Length);
+                        if (n <= 0) break;
 
-            // 3. Only now do we perform the actual read
-            byte[] buf = new byte[Math.Min(bufferSize, (int)bytesAvailable)];
-            int count = _reader.Read(buf, 0, buf.Length);
-            
-            byte[] res = new byte[count];
-            Array.Copy(buf, res, count);
-            return res;
+                        var chunk = new byte[n];
+                        Buffer.BlockCopy(buf, 0, chunk, 0, n);
+                        _readQueue.Enqueue(chunk);
+                    }
+                    catch (Exception ex)
+                    {
+                        _readerFailed = true;
+                        break;
+                    }
+                }
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        public void Write(byte[] data)
+        {
+            if (_readerFailed)
+                throw new IOException("ConPTY reader failed; output pipe is no longer draining.");
+
+            _writeQueue.Add(data);
+        }
+
+        public byte[] Read()
+        {
+            if (_readQueue.TryDequeue(out var data))
+                return data;
+
+            return Array.Empty<byte>();
         }
 
         public void Dispose()
@@ -281,15 +340,24 @@ namespace Moppy.ConPTY
             try
             {
                 // Suppress errors during flush/close if the pipe is already broken
-                _writer?.Dispose(); 
+                if (_hPC != IntPtr.Zero)
+                {
+                    ClosePseudoConsole(_hPC);
+                    _hPC = IntPtr.Zero;
+                }
+
+                _writeQueue.CompleteAdding();
+                _writer?.Dispose();
                 _reader?.Dispose();
+
+                if (_hProcess != IntPtr.Zero)
+                {
+                    CloseHandle(_hProcess);
+                    _hProcess = IntPtr.Zero;
+                }
             }
             catch (Exception) { /* Ignore pipe errors during cleanup */ }
 
-            if (_hPC != IntPtr.Zero)
-            {
-                ClosePseudoConsole(_hPC);
-            }
         }
 
         public uint ExitCode()

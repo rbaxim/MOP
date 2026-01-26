@@ -1,7 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 rbaxim
+# Licensed under the Apache License, Version 2.0
+# See LICENSE file in the project root for details
 from __future__ import annotations
 
 import ctypes
 from typing import TYPE_CHECKING, Any, Optional, Tuple
+import sys
+
+if sys.platform != "win32":
+    raise RuntimeError("ConPTYBridge is only supported on Windows")
 
 from pythonnet import load  # pyright: ignore[reportMissingImports]
 
@@ -95,7 +103,7 @@ class ConPTYClient:
         global ConPTYInstance
         from Moppy.ConPTY import ConPTYInstance as _ConPTYInstance  # type: ignore
 
-        ConPTYInstance = _ConPTYInstance  # type: ignore[assignment]
+        ConPTYInstance = _ConPTYInstance  # type: ignore[assignment, misc]
 
         self._pty: Optional[ConPTYInstance] = None
 

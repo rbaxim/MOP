@@ -25,7 +25,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 > Windows support partially exists but is extremely unstable
 > You may encounter random crashes and SSL issues
 > The winpty module does not allow MOP to enable/disable echo
-> My C# implementation parially works. I do not recommend using Windows
+> My C# implementation parially works. I do still not recommend using Windows
 
 1. Install Python (3.13 or 3.12 are recommended):
    - Debian/Ubuntu:
@@ -35,7 +35,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
      ```bash
      sudo apt update && sudo apt install -y python3
      curl -LsSf https://astral.sh/uv/install.sh | sh
-     export PATH="$HOME/.cargo/bin:$PATH"
+     export PATH="$HOME/.local/bin:$PATH"
      uv --version
      ```
 
@@ -100,7 +100,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
         ```powershell
         python -m venv .venv
-        ./.venv/Scripts/activate.ps1
+        ./.venv/Scripts/Activate.ps1
         ```
 
     </details>
@@ -108,7 +108,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 3. Run the server:
 
    ```bash
-   uv run python mop.py -c "python test.py"
+   uv run mop.py -c "python test.py"
    ```
 
    - Use --ssl to enable TLS (requires certs in ./moppy/certs or generate them with ./moppy/ssl_certs.py).

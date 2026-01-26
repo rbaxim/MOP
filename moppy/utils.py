@@ -11,6 +11,41 @@ import psutil # pyright: ignore[reportMissingModuleSource]
 import json
 import shlex
 from enum import Enum, auto
+import sys
+from collections import deque
+
+class ByteLimitedLog:
+    def __init__(self, max_bytes=1048576, max_lines=9000):
+        self.lines = deque()
+        self.max_bytes = max_bytes
+        self.current_bytes = 0
+        self.max_lines = max_lines
+
+    def append(self, line_str):
+        # We encode to utf-8 to get the actual byte weight
+        line_bytes = line_str.encode('utf-8')
+        line_len = len(line_bytes)
+
+        # If a single line is bigger than the whole buffer, 
+        # you might want to truncate it or handle it specially.
+        if line_len > self.max_bytes:
+            line_bytes = f"[TRUNCATED LINE OF LENGTH: {line_len}]\n".encode('utf-8')
+            line_len = self.max_bytes
+
+        # Add new line weight
+        self.lines.append(line_bytes)
+        self.current_bytes += line_len
+
+        # Evict old lines until we are under the limit
+        while self.current_bytes > self.max_bytes or len(self.lines) > self.max_lines:
+            removed_line = self.lines.popleft()
+            self.current_bytes -= len(removed_line)
+
+    def get_full_buffer(self) -> bytes:
+        return b"".join(self.lines)
+    
+    def buffer(self) -> list[bytes]:
+        return list(self.lines)
 
 
 session: aiohttp.ClientSession | None = None  # global
@@ -186,4 +221,23 @@ class Signal(Enum):
     INTERRUPT = auto()
     TERMINATE = auto()
     KILL = auto()
+
+def preexec(slave_fd: int, disable_echo: bool) -> None:
+    if sys.platform == "win32":
+        raise NotImplementedError("preexec is not supported on Windows.")
+    import os
+    import fcntl
+    import termios
+    os.setsid()
+    # Make slave controlling tty
+    fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
     
+    if disable_echo:
+        attrs = termios.tcgetattr(slave_fd)
+        attrs[3] &= ~(termios.ECHO | termios.ECHONL)
+        termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
+    
+    os.dup2(slave_fd, 0)
+    os.dup2(slave_fd, 1)
+    os.dup2(slave_fd, 2)
+    os.close(slave_fd)
