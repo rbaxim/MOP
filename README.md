@@ -25,7 +25,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 > Windows support partially exists but is extremely unstable
 > You may encounter random crashes and SSL issues
 > The winpty module does not allow MOP to enable/disable echo
-> My C# implementation parially works. I do still not recommend using Windows
+> My C# implementation partially works. I do still not recommend using Windows
 
 1. Install Python (3.13 or 3.12 are recommended):
    - Debian/Ubuntu:
@@ -133,7 +133,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 | Method | Pros | Cons |
 | --- | --- | --- |
 | PTY | Full Terminal output (only returns ANSI that contain color/style data) Great for interactive sessions | Spawns an entire terminal. Slightly higher resource overhead than Pipes |
-| Pipes | Efficient and fast. Great when you are with limited resources | Extremely buggy, doesn't give full TTY output, not suitable for interactive sessions |
+| Pipes | Efficient and fast. Great when for environments with limited resources | Extremely buggy, doesn't give full TTY output, not suitable for interactive sessions |
 
 - Use the public session to reduce strain on the server.
 
@@ -215,7 +215,7 @@ Each Core plugin has its purpose
 
 - **Attic**
 
-    Persists sessions across server restarts
+    Persists sessions across server restarts using disk
 
     Binds to localhost:9000.
 
