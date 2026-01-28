@@ -46,7 +46,7 @@ jobs:
           cd "$ROOT_DIR"
 
           # 4. Git add using the path relative to the REPO root (Git requires this)
-          git add "ConPTYBridge/bin/Release/net8.0/ConPTYBridge.dll"
+          git add -f "ConPTYBridge/bin/Release/net8.0/ConPTYBridge.dll"
 
           # 5. Commit and Push
           if git diff --staged --quiet; then
