@@ -28,22 +28,29 @@ jobs:
       - name: Commit and Push DLL
         shell: bash
         run: |
+          # Define absolute paths using the GitHub Workspace variable
+          ROOT_DIR="$GITHUB_WORKSPACE"
+          SOURCE_DLL="$ROOT_DIR/dist/ConPTYBridge.dll"
+          TARGET_DIR="$ROOT_DIR/ConPTYBridge/bin/Release/net8.0"
+
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 1. Create your target directory in the repo structure
-          TARGET_PATH="ConPTYBridge/bin/Release/net8.0"
-          mkdir -p "$TARGET_PATH"
+          # 1. Create the target directory using absolute path
+          mkdir -p "$TARGET_DIR"
 
-          # 2. Copy the DLL from the flat 'dist' folder to the target
-          cp ./dist/*.dll "$TARGET_PATH/"
+          # 2. Copy the file from the absolute source to the absolute target
+          cp -f "$SOURCE_DLL" "$TARGET_DIR/"
 
-          # 3. Add the file (using quotes to handle Windows pathing styles)
-          git add "$TARGET_PATH/*.dll"
+          # 3. Move into the root to execute Git commands safely
+          cd "$ROOT_DIR"
 
-          # 4. Check status and push
+          # 4. Git add using the path relative to the REPO root (Git requires this)
+          git add "ConPTYBridge/bin/Release/net8.0/ConPTYBridge.dll"
+
+          # 5. Commit and Push
           if git diff --staged --quiet; then
-            echo "No changes to binary; skipping commit."
+            echo "No changes detected in the DLL; skipping commit."
           else
             git commit -m "build: update ConPTYBridge binary [skip ci]"
             git push
