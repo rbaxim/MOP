@@ -3,14 +3,14 @@ name: Build C# ConPTY Wrapper
 on:
   push:
     paths:
-      - 'ConPTYBridge/**' # Only run when C# code changes
+      - 'ConPTYBridge/**'
 
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: windows-latest # Required for kernel32.dll and P/Invoke
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -38,10 +38,8 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Force add the DLL from the explicit output folder
           git add ./build-output/*.dll
           
-          # Only commit if there are actually changes to avoid errors
           if git diff --staged --quiet; then
             echo "No changes to binary; skipping commit."
           else
