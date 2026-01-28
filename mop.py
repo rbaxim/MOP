@@ -68,12 +68,17 @@ def get_certs():
     if not ssl_cert or not ssl_key:
         print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /moppy/certs")
     return ssl_cert, ssl_key
+
+def is_docker():
+    return os.environ.get("AM_I_IN_A_DOCKER_CONTAINER", "false").lower() == "true" or "moapy" in os.getcwd()
     
 uv = is_uv_available()
 
 if __name__ == "__main__":
     print("[INFO] Python version: " + sys.version)
     print("[INFO] Is frozen: " + str(is_frozen()))
+    print("[INFO] Is uv available: " + str(uv))
+    print("[INFO] Is docker: " + str(is_docker()))
 
 def module_exists(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
@@ -202,9 +207,11 @@ import moppy.hints as hints # pyright: ignore[reportMissingImports]  # noqa: E40
 
 colorama_init()
 
+default_host: Literal["127.0.0.1", "0.0.0.0"] = "0.0.0.0" if is_docker() else "127.0.0.1"
+
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--port", type=int, default=8000, help="Sets the port for MOP to bind to")
-parser.add_argument("--host", type=str, default="127.0.0.1", help="Sets the interface for MOP to bind to") # arg parser is weird and wont let me use -h
+parser.add_argument("--host", type=str, default=default_host, help="Sets the interface for MOP to bind to") # arg parser is weird and wont let me use -h
 parser.add_argument("-c", "--cmd", type=str, default="echo Hello World!", required=True, help="The command for MOP to wrap with either pty or pipes")
 parser.add_argument("-r", "--rate-limit", default=False, action="store_true", help="Enables rate limits for possible abusive endpoints (/mop/write, /mop/init, etc.)")
 parser.add_argument("--cwd", default=os.getcwd(), type=str, help="Sets the CWD for the sessions to run in")

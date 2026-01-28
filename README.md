@@ -33,19 +33,17 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
         ***It is recommended that you install uv and use that instead of pip and venv***
 
      ```bash
-     sudo apt update && sudo apt install -y python3
      curl -LsSf https://astral.sh/uv/install.sh | sh
-     export PATH="$HOME/.local/bin:$PATH"
+     export PATH="$HOME/.local/bin:$PATH" # Or restart your shell
      uv --version
      ```
 
      <details>
-     If you want to use standard pip and uv. run this command instead:
+     If you want to use standard pip and uv. Run this command instead:
 
       ```bash
       sudo apt update && sudo apt install -y python3 python3-venv python3-pip
       ```
-
      </details>
 
    - macOS (Homebrew):
@@ -53,13 +51,14 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
         ***It is recommended that you install uv and use that instead of pip and venv***
 
      ```bash
-     brew install python
      brew install uv
      uv --version
      ```
 
      <details>
-     If you want to use standard pip and venv. Just execute the first command and ignore the rest.
+     ```bash
+     brew install python
+     ```
      </details>
 
    - Windows:
@@ -72,13 +71,9 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
      And restart your shell
 
-        After you have installed uv. Install python
-
         <details>
-        If you don't want to use uv. Just install python and use pip.
+        If you don't want to use uv, then install Python from [python.org](https://python.org) or: ```choco install python```
         </details>
-
-        Install Python from [python.org](https://python.org) or: ```choco install python```
 2. Create and activate a virtual environment:
    - All systems:
 
