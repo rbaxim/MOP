@@ -21,17 +21,9 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore dependencies
-        run: dotnet restore ./ConPTYBridge/ConPTYBridge.csproj
-
       - name: Build Release
-        run: dotnet build ./ConPTYBridge/ConPTYBridge.csproj -c Release --no-restore -o ./build-output
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ConPTY-Wrapper-Binary
-          path: ./ConPTYBridge/bin/Release/net8.0/
+        # We build directly into a flat 'dist' folder to avoid path confusion
+        run: dotnet build ./ConPTYBridge/ConPTYBridge.csproj -c Release -o ./dist
 
       - name: Commit and Push DLL
         shell: bash
@@ -39,17 +31,17 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 1. Create the destination folder if it doesn't exist
-          DEST_DIR="./ConPTYBridge/bin/Release/net8.0"
-          mkdir -p $DEST_DIR
+          # 1. Create your target directory in the repo structure
+          TARGET_PATH="ConPTYBridge/bin/Release/net8.0"
+          mkdir -p "$TARGET_PATH"
 
-          # 2. Move the DLL from the output folder to your preferred folder
-          cp ./build-output/*.dll $DEST_DIR/
+          # 2. Copy the DLL from the flat 'dist' folder to the target
+          cp ./dist/*.dll "$TARGET_PATH/"
 
-          # 3. Stage ONLY the specific DLL file
-          git add "$DEST_DIR/*.dll"
+          # 3. Add the file (using quotes to handle Windows pathing styles)
+          git add "$TARGET_PATH/*.dll"
 
-          # 4. Commit and Push (with a check to avoid empty commits)
+          # 4. Check status and push
           if git diff --staged --quiet; then
             echo "No changes to binary; skipping commit."
           else
