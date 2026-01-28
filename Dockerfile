@@ -10,7 +10,6 @@ VOLUME ["/moapy/scripts"]
 # Copy your project files
 COPY . /moapy
 
-RUN apt-get update
 RUN apt-get update && apt-get install -y \
     curl \
     python3-venv \

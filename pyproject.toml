@@ -45,7 +45,7 @@ dependencies = [
     "h11==0.16.0",
 ]
 
-# Development-only tools (keeps your production environment lean)
+# Development-only tools (keep your production environment clean)
 [dependency-groups]
 dev = [
     "mypy>=1.14.0",

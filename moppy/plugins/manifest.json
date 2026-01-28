@@ -3,7 +3,7 @@
         "location": "moppy/plugins/attic.py",
         "acryonym": "Archived Terminal and Task Image Cache",
         "dependencies": ["aiofiles", "colorama", "fastapi", "uvicorn", "cryptography", "psutil", "aiohttp", "brotlicffi", "brotli_asgi", "base91"],
-        "runtime": "uvicorn plugins.attic:app --host {host} --port {port}",
+        "runtime": "uvicorn plugins.attic:app --host 127.0.0.1 --port {port}",
         "supports": [],
         "core": true,
         "port": 9000,

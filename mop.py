@@ -667,6 +667,8 @@ class Terminal:
                 self.proc = None # pyright: ignore[reportAttributeAccessIssue] # type: ignore[no-redef, assignment]
                 
     def _on_pty_readable(self):
+        if sys.platform == "win32":
+            return True # Handled differently on Windows.
         try:
             data = os.read(self.master_fd, 4096)
             if not data:
@@ -853,10 +855,14 @@ class Terminal:
                 pty = cast(winpty.PTY, self.pty)
                 pty.close()
         else:
-            # FIX: Remove reader before closing fd
             if hasattr(self, '_loop') and hasattr(self, 'master_fd') and self.master_fd:
                 try:
                     self._loop.remove_reader(self.master_fd)
+                except Exception:
+                    pass
+                
+                try:
+                    self._loop.remove_writer(self.master_fd)
                 except Exception:
                     pass
                     
@@ -1199,7 +1205,7 @@ async def power_sock(websocket: WebSocket, key: str):
     except WebSocketDisconnect:
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Session {big_hash(key)[:6]} disconnected")
     finally:
-        term = sessions[key]["tty"]  # Terminal object
+        term = cast(Terminal,sessions[key]["tty"])  # Terminal object
 
         try:
             # Cancel the readers first
@@ -1211,14 +1217,12 @@ async def power_sock(websocket: WebSocket, key: str):
         # Kill/close the terminal subprocess
         if sys.platform == "win32":
             try:
-                term.pty.kill()  # pywinpty has a .kill() method
+                term.close()
             except Exception:
                 pass
         else:
             try:
-                term.proc.terminate()
-                await term.proc.wait()
-                os.close(term.master_fd)
+                term.close()
             except Exception:
                 pass
 

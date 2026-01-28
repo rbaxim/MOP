@@ -1,0 +1,30 @@
+name: Build C# ConPTY Wrapper
+
+on:
+  push:
+    paths:
+      - 'ConPTYBridge/**' # Only run when C# code changes
+
+jobs:
+  build:
+    runs-on: windows-latest # Required for kernel32.dll and P/Invoke
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore ./ConPTYBridge/ConPTYBridge.csproj
+
+      - name: Build Release
+        run: dotnet build ./ConPTYBridge/ConPTYBridge.csproj -c Release --no-restore
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ConPTY-Wrapper-Binary
+          path: ./ConPTYBridge/bin/Release/net8.0/

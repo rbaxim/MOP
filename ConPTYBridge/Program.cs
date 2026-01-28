@@ -308,7 +308,7 @@ namespace Moppy.ConPTY
                         Buffer.BlockCopy(buf, 0, chunk, 0, n);
                         _readQueue.Enqueue(chunk);
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
                         _readerFailed = true;
                         break;
