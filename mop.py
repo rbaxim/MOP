@@ -167,10 +167,7 @@ if not is_frozen() and __name__ == "__main__":
     if sys.platform != "win32":
         required_packages.append("uvloop")
     else:
-        required_packages.append("cffi")
-        required_packages.append("clr_loader")
         required_packages.append("pythonnet")
-        required_packages.append("pycparser")
 
     # Check and install missing packages
     

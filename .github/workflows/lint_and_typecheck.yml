@@ -20,7 +20,7 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           uv --version
           uv venv
-          uv pip install ruff
+          uv sync --group dev
           uv run ruff check .
 
   typecheck:
@@ -41,6 +41,5 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           uv --version
           uv venv
-          uv pip install -r requirements.txt
-          uv pip install mypy
+          uv sync --group dev --group unix
           uv run mypy . --explicit-package-bases --ignore-missing-imports

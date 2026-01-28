@@ -52,3 +52,9 @@ dev = [
     "ruff>=0.9.0",
     "types-aiofiles==24.1.0.20250822"
 ]
+windows = [
+    "pythonnet==3.0.5",
+]
+unix = [
+    "uvloop==0.22.1",
+]

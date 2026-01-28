@@ -74,11 +74,18 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
         <details>
         If you don't want to use uv, then install Python from [python.org](https://python.org) or: ```choco install python```
         </details>
+
 2. Create and activate a virtual environment:
-   - All systems:
+   - Linux and Mac:
 
      ```bash
-       uv sync
+       uv sync --group unix
+     ```
+
+   - Windows
+
+     ```powershell
+        uv sync --group windows
      ```
 
      <details>
