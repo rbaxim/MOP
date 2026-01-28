@@ -5,6 +5,9 @@ on:
     paths:
       - 'ConPTYBridge/**' # Only run when C# code changes
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest # Required for kernel32.dll and P/Invoke
@@ -21,7 +24,7 @@ jobs:
         run: dotnet restore ./ConPTYBridge/ConPTYBridge.csproj
 
       - name: Build Release
-        run: dotnet build ./ConPTYBridge/ConPTYBridge.csproj -c Release --no-restore
+        run: dotnet build ./ConPTYBridge/ConPTYBridge.csproj -c Release --no-restore -o ./build-output
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
@@ -30,9 +33,18 @@ jobs:
           path: ./ConPTYBridge/bin/Release/net8.0/
 
       - name: Commit and Push DLL
+        shell: bash
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add ConPTYBridge/bin/Release/net8.0/*.dll
-          git commit -m "build: auto-update ConPTYBridge binary [skip ci]"
-          git push
+          
+          # Force add the DLL from the explicit output folder
+          git add ./build-output/*.dll
+          
+          # Only commit if there are actually changes to avoid errors
+          if git diff --staged --quiet; then
+            echo "No changes to binary; skipping commit."
+          else
+            git commit -m "build: update ConPTYBridge binary [skip ci]"
+            git push
+          fi
