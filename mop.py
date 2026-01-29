@@ -401,7 +401,7 @@ def is_uvicorn():
             if "uvicorn" in arg.lower():
                 return True
     except psutil.NoSuchProcess:
-        pass
+        pass # nosec
     return False
 
 async def plugin_call(name, method="GET", content=None, path=""):
@@ -562,7 +562,7 @@ def etag_response(func):
             else:
                 body_bytes = b""
             
-            etag = hashlib.md5(body_bytes).hexdigest()
+            etag = hashlib.md5(body_bytes, usedforsecurity=False).hexdigest() # nosec
             # Check for If-None-Match header
             if request.headers.get("if-none-match") == etag:
                 return JSONResponse(status_code=304, content=None)
@@ -755,7 +755,6 @@ class Terminal:
                 )
             except Exception:
                 print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to send signal to {self.proc.pid}. Process unexepectedly died?")
-                pass
             return
         else:
             pty = cast(Union["winpty.PTY", "conpty.ConPTYClient"], self.pty)
@@ -1432,7 +1431,7 @@ async def read(request: Request):
     stderr: list = [utf8_buffer.decode("utf-8", errors="replace") for utf8_buffer in buffer_stderr.buffer()]
     
     out: dict[str, list[bytes]] = {"stdout": stdout, "stderr": stderr}
-    return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(Buffer,json.dumps(out, sort_keys=True)), usedforsecurity=False).hexdigest()}, status_code=200)
+    return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(Buffer,json.dumps(out, sort_keys=True)), usedforsecurity=False).hexdigest()}, status_code=200) # nosec
 
 @app.post("/mop/waiver")
 async def waiver(request: Request):
@@ -1617,7 +1616,7 @@ if __name__ == "__main__" and not is_uvicorn():
                     try:
                         pty.close() # pyright: ignore[reportAttributeAccessIssue, reportPossiblyUnboundVariable] # type: ignore[attr-defined]
                     except Exception:
-                        pass
+                        pass # nosec
                     print(f"{Fore.GREEN}INFO{Fore.RESET}:     .NET ConPTY session {pty.pid} closed.")
         else:
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Shutting down terminal sessions...")

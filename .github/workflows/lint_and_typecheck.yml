@@ -3,43 +3,96 @@ name: Type Checks
 on: [push, pull_request]
 
 jobs:
+  setup_uv:
+    runs-on: ubuntu-latest
+    outputs:
+      uv_path: ${{ steps.set_path.outputs.uv_path }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Cache uv environment
+        uses: actions/cache@v3
+        id: uv_cache
+        with:
+          path: |
+            ~/.local/share/uv
+            ~/.local/bin/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install uv if missing
+        id: set_path
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          if ! command -v uv &>/dev/null; then
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+          fi
+          echo "uv_path=$HOME/.local/bin" >> $GITHUB_OUTPUT
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dev dependencies
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv venv
+          uv sync --group dev --group unix
+      
   lint:
+    needs: setup_uv
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Run Ruff
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
-          uv --version
-          uv venv
-          uv sync --group dev
           uv run ruff check .
 
   typecheck:
-    needs: lint
+    needs: setup_uv
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Run mypy
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
-          uv --version
-          uv venv
-          uv sync --group dev --group unix
           uv run mypy . --explicit-package-bases --ignore-missing-imports
+  bandit:
+    needs: setup_uv
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Run bandit
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run bandit -r . -c .bandit -f json -o bandit-report.json
+
+      - name: Upload Bandit Report
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: bandit-report.json

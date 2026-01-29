@@ -50,7 +50,8 @@ dependencies = [
 dev = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
-    "types-aiofiles==24.1.0.20250822"
+    "types-aiofiles==24.1.0.20250822",
+    "bandit>=1.9.3",
 ]
 windows = [
     "pythonnet==3.0.5",
@@ -63,7 +64,8 @@ unix = [
 dev = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
-    "types-aiofiles==24.1.0.20250822"
+    "types-aiofiles==24.1.0.20250822",
+    "bandit>=1.9.3",
 ]
 windows = [
     "pythonnet==3.0.5",

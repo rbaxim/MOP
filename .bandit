@@ -1,0 +1,10 @@
+skips:
+  - B603
+  - B404
+  - B607
+  - B605
+  - B104
+  - B110
+
+min_severity: LOW
+min_confidence: LOW

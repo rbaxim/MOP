@@ -122,7 +122,7 @@ def etag_response(func):
             if body is None:
                 return response
 
-            etag = hashlib.md5(body).hexdigest()
+            etag = hashlib.md5(body, usedforsecurity=False).hexdigest() # nosec
 
             if request.headers.get("if-none-match") == etag:
                 return Response(status_code=304)
