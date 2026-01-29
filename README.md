@@ -1,7 +1,7 @@
 # MOP
 
 ![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
-![License](https://img.shields.io/badge/license-Apache-2.0-green)
+![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Frbaxim%2FMOP%2Frefs%2Fheads%2Fmain%2Fversion_badge.json)
 ![GitHub repo size](https://img.shields.io/github/repo-size/rbaxim/MOP?label=Repo%20Size)
 
