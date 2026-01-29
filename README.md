@@ -1,7 +1,7 @@
 # MOP
 
 ![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
-![License](https://img.shields.io/badge/license-Apache--2.0-green)
+![License](https://img.shields.io/badge/license-Apache-2.0-green)
 ![Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Frbaxim%2FMOP%2Frefs%2Fheads%2Fmain%2Fversion_badge.json)
 ![GitHub repo size](https://img.shields.io/github/repo-size/rbaxim/MOP?label=Repo%20Size)
 
@@ -159,6 +159,14 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 | ```-w```, ```--workers``` | Integer | 1 | No | Sets the amount of FastAPI workers to spawn |
 | ```--force-port``` | Flag | False | No | Disables interactive prompts when another process is bound to the port FastAPI wants to use and kills the process using the port without warning [See this warning](#the-dangers-of-stealing-a-port) |
 | ```--no-pub-process``` | Flag | False | No | Prevents automatic creation of a public session |
+
+### Waivers
+
+- Waivers grant you extra features that MOP usually tucks away.
+
+| Waiver | Type | Description |
+| --- | --- | --- |
+| ```RAW_ANSI``` | Flag | Disables MOP's ANSI filtering and returns the full, raw terminal output (including non-SGR escape sequences) |
 
 ## Security and Warnings
 

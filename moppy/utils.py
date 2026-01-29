@@ -241,3 +241,6 @@ def preexec(slave_fd: int, disable_echo: bool) -> None:
     os.dup2(slave_fd, 1)
     os.dup2(slave_fd, 2)
     os.close(slave_fd)
+    
+class Waiver(Enum):
+    RAW_ANSI = auto()

@@ -22,10 +22,11 @@ import hashlib
 import json
 from pathlib import Path
 import importlib.util
-from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional, Union
+from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional, Union, Any
 import warnings
 import signal
 import shutil
+from collections.abc import Buffer
 
 def is_frozen():
     return getattr(sys, 'frozen', False) or bool(getattr(sys, '_MEIPASS', []))
@@ -986,6 +987,7 @@ async def init(request: Request):
     async def OUT_reader(default_key: str) -> None:
         buffers: dict[str, utils.ByteLimitedLog] = sessions[default_key]["buffers"]
         tty: Terminal = sessions[default_key]["tty"]
+        waivers = sessions[default_key].get("waiver", set())
 
         ANSI_CONTROL_RE: re.Pattern = re.compile(
             r'\x1b(?:'              # ESC
@@ -1012,7 +1014,7 @@ async def init(request: Request):
                 stdout = data.get("stdout", "[ERROR reading stdout]")
                 stderr = data.get("stderr", "[ERROR reading stderr]")
 
-                if not use_pipe:
+                if not use_pipe and utils.Waiver.RAW_ANSI not in waivers:
                     stdout = ANSI_CONTROL_RE.sub('', stdout)
                     stderr = ANSI_CONTROL_RE.sub('', stderr)
 
@@ -1037,7 +1039,7 @@ async def init(request: Request):
             finally:
                 queue.task_done()
 
-    sessions[hashed_key] = {"tty": process_handle, "command": command, "buffers": {"stdout": utils.ByteLimitedLog(), "stderr": utils.ByteLimitedLog()}, "tags": [], "mode": "pty" if use_pipe else "pipe"}
+    sessions[hashed_key] = {"tty": process_handle, "command": command, "buffers": {"stdout": utils.ByteLimitedLog(), "stderr": utils.ByteLimitedLog()}, "tags": [], "mode": "pty" if use_pipe else "pipe", "waiver": set()}
     sessions[hashed_key]["task_out"] = asyncio.create_task(OUT_reader(default_key=hashed_key))
     if pub_key not in sessions and not args.no_pub_process:
         pub_process_handle: Terminal = await spawn_tty(app.state.command, not echo)
@@ -1430,7 +1432,39 @@ async def read(request: Request):
     stderr: list = [utf8_buffer.decode("utf-8", errors="replace") for utf8_buffer in buffer_stderr.buffer()]
     
     out: dict[str, list[bytes]] = {"stdout": stdout, "stderr": stderr}
-    return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": big_hash(json.dumps(out, sort_keys=True))}, status_code=200)
+    return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(Buffer,json.dumps(out, sort_keys=True)), usedforsecurity=False).hexdigest()}, status_code=200)
+
+@app.post("/mop/waiver")
+async def waiver(request: Request):
+    data: dict[str, Any] = await request.json()
+    key: str = big_hash(data.get("key"))
+    remove: list[str] = data.get("remove", [])
+    waivers: dict[str, Any] = data.get("waivers", {})
+    if key not in sessions:
+        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
+    
+    if data.get("key") == pub_key:
+        return JSONResponse({"status": "Cannot set waiver for public key", "code": 1}, status_code=403)
+        
+    if not waivers:
+        return JSONResponse({"status": "No waivers set", "code": 0}, status_code=200) 
+    
+    
+        
+    for waiver, value in waivers.items():
+        if waiver.lower() == "raw_ansi":
+            sessions[key]["waivers"] = utils.Waiver.RAW_ANSI
+        else:
+            return JSONResponse({"status": f"Unknown waiver: {waiver}", "code": 1}, status_code=400)
+            
+    for waiver in remove:
+        if waiver.lower() == "raw_ansi" and utils.Waiver.RAW_ANSI in sessions[key].get("waivers", set()):
+            del sessions[key]["waivers"]
+            
+    return JSONResponse({"status": "Waiver(s) set/removed", "code": 0}, status_code=200)
+    
+        
+    
 
 @app.post("/mop/ping")
 async def ping(request: Request):

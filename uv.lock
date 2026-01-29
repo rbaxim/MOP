@@ -482,6 +482,19 @@ dependencies = [
     { name = "uvicorn" },
 ]
 
+[package.optional-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "ruff" },
+    { name = "types-aiofiles" },
+]
+unix = [
+    { name = "uvloop" },
+]
+windows = [
+    { name = "pythonnet" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
@@ -509,12 +522,18 @@ requires-dist = [
     { name = "cryptography", specifier = "==46.0.3" },
     { name = "fastapi", specifier = "==0.128.0" },
     { name = "h11", specifier = "==0.16.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14.0" },
     { name = "psutil", specifier = "==7.2.1" },
     { name = "pydantic", specifier = "==2.12.5" },
+    { name = "pythonnet", marker = "extra == 'windows'", specifier = "==3.0.5" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9.0" },
     { name = "slowapi", specifier = "==0.1.9" },
     { name = "starlette", specifier = "==0.50.0" },
+    { name = "types-aiofiles", marker = "extra == 'dev'", specifier = "==24.1.0.20250822" },
     { name = "uvicorn", specifier = "==0.40.0" },
+    { name = "uvloop", marker = "extra == 'unix'", specifier = "==0.22.1" },
 ]
+provides-extras = ["dev", "windows", "unix"]
 
 [package.metadata.requires-dev]
 dev = [

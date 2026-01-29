@@ -33,7 +33,7 @@ app = FastAPI()
 
 app.add_middleware(brotli_asgi.BrotliMiddleware, quality=6, gzip_fallback=True, minimum_size=256)
 
-# CWD is mop
+# CWD is ./moppy
 attic = Path(os.getcwd()) / Path("attic")
 
 MAX_RAW_SIZE = 1_826_488_832 # GiB
@@ -96,7 +96,7 @@ def big_hash(s) -> bytes:
     b = s if isinstance(s, bytes) else s.encode("utf-8")
     return hashlib.sha512(pepper.encode("utf-8") + b).digest()
     
-static_secret = big_hash(private_key + certificate) # Type hints show string
+static_secret = big_hash(private_key + certificate) # Type hints show bytes
 
 kdf = PBKDF2HMAC(
     algorithm=hashes.SHA256(),
