@@ -1371,16 +1371,16 @@ async def end(request: Request):
             sessions[pub_key]["task_in"].cancel()
         except Exception:
             pass
-        pub_term = sessions[pub_key]["tty"]
+        pub_term: Terminal = sessions[pub_key]["tty"]
         if sys.platform == "win32":
             try:
-                pub_term.send_signal(utils.Signal.KILL)
+                await pub_term.send_signal(utils.Signal.KILL)
                 pub_term.close()
             except Exception:
                 pass
         else:
             try:
-                pub_term.send_signal(utils.Signal.TERMINATE)
+                await pub_term.send_signal(utils.Signal.TERMINATE)
                 pub_term.close()
             except Exception:
                 pass
@@ -1431,7 +1431,7 @@ async def read(request: Request):
     stderr: list = [utf8_buffer.decode("utf-8", errors="replace") for utf8_buffer in buffer_stderr.buffer()]
     
     out: dict[str, list[bytes]] = {"stdout": stdout, "stderr": stderr}
-    return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(Buffer,json.dumps(out, sort_keys=True)), usedforsecurity=False).hexdigest()}, status_code=200) # nosec
+    return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(Buffer,json.dumps(out, sort_keys=True).encode("utf-8")), usedforsecurity=False).hexdigest()}, status_code=200) # nosec
 
 @app.post("/mop/waiver")
 async def waiver(request: Request):
