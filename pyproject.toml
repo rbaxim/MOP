@@ -31,11 +31,11 @@ dependencies = [
     "certifi==2026.1.4",
 
     # System & Utils
-    "psutil==7.2.1",
+    "psutil==7.2.2",
     "colorama==0.4.6",
     
     # Compression & Encryption (Plugin requirements)
-    "cryptography==46.0.3",
+    "cryptography==46.0.4",
     "brotlicffi==1.2.0.0",
     "brotli==1.2.0",
     "brotli-asgi==1.6.0",
@@ -50,7 +50,7 @@ dependencies = [
 dev = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
-    "types-aiofiles==24.1.0.20250822",
+    "types-aiofiles==25.1.0.20251011",
     "bandit[sarif, toml]>=1.9.3",
 ]
 windows = [
@@ -64,7 +64,7 @@ unix = [
 dev = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
-    "types-aiofiles==24.1.0.20250822",
+    "types-aiofiles==25.1.0.20251011",
     "bandit[sarif, toml]>=1.9.3",
 ]
 windows = [
