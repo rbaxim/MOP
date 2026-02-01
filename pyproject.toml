@@ -1,6 +1,15 @@
 [tool.mypy]
 ignore_missing_imports = true
-explicit_package_bases = true
+exclude = ['^\.venv.*']
+follow_imports = "silent"
+
+[[tool.mypy.overrides]]
+module = [
+    "yaml.*",
+    "ujson.*",
+]
+ignore_errors = true
+ignore_missing_imports = true
 
 [tool.uv]
 managed = true
@@ -51,6 +60,7 @@ dev = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
     "types-aiofiles==24.1.0.20250822",
+    "types-Deprecated==1.3.1.20260130",
     "bandit[sarif, toml]>=1.9.3",
 ]
 windows = [

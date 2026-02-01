@@ -27,6 +27,7 @@ import warnings
 import signal
 import shutil
 from collections.abc import Buffer
+import base64
 
 def is_frozen():
     return getattr(sys, 'frozen', False) or bool(getattr(sys, '_MEIPASS', []))
@@ -37,7 +38,7 @@ def is_uv_available() -> bool:
         return True
     except FileNotFoundError:
         return False
-    
+
 def get_certs():
     cert_dir = Path("./moppy/certs")
     ssl_cert, ssl_key = None, None
@@ -72,6 +73,26 @@ def get_certs():
 
 def is_docker():
     return os.environ.get("AM_I_IN_A_DOCKER_CONTAINER", "false").lower() == "true" or "moapy" in os.getcwd()
+
+def cwd_switch():
+    if Path("./moppy").exists():
+        return True, Path("./moppy")
+    else:
+        moppy_path = os.environ.get("MOPPY_PATH", None)
+        if moppy_path is None:
+            print("[ERROR] MOPPY_PATH environment variable not set. Either move to the parent directory of moppy or set the variable to the path of moppy.")
+            sys.exit(1)
+        
+        if Path(moppy_path).exists() and Path(moppy_path).is_dir():
+            os.chdir(moppy_path)
+            return True, Path(moppy_path).parent
+        elif Path(moppy_path).exists() and Path(moppy_path).is_file():
+            print(f"[ERROR] MOPPY_PATH environment variable points to a file: {moppy_path}")
+            sys.exit(1)
+        else:
+            print(f"[ERROR] MOPPY_PATH environment variable points to an invalid path: {moppy_path}")
+            sys.exit(1)
+
     
 uv = is_uv_available()
 
@@ -80,6 +101,9 @@ if __name__ == "__main__":
     print("[INFO] Is frozen: " + str(is_frozen()))
     print("[INFO] Is uv available: " + str(uv))
     print("[INFO] Is docker: " + str(is_docker()))
+    print("[INFO] Found Moppy: " + str(cwd_switch()[0]))
+    
+    
 
 def module_exists(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
@@ -162,7 +186,6 @@ if not is_frozen() and __name__ == "__main__":
         "aiohttp",
         "base91",
         "aiofiles",
-        "types-aiofiles"
     ]
     
     if sys.platform != "win32":
@@ -231,7 +254,7 @@ def steal_port(port):
                 return conn.pid
         return None
 
-    used_port = get_pid_by_port(args.port)
+    used_port = get_pid_by_port(port)
     try:
         ps_port = psutil.Process(used_port)
         ps_PPID = psutil.Process(ps_port.ppid())
@@ -519,8 +542,6 @@ def create_app(command: list[str]):
 
 app: FastAPI = create_app(command)
 
-app.state.lifespan_ran = False
-
 app.state.start_time = time.monotonic()
 app.state.pepper =  b""
 
@@ -544,7 +565,9 @@ except FileNotFoundError:
         os.chmod("moppy/pepper", 0o600)
         
 def big_hash(s) -> str:
-    b = s if isinstance(s, bytes) else s.encode("utf-8")
+    if s is None: 
+        return ""
+    b = s if isinstance(s, bytes) else str(s).encode("utf-8")
     return hashlib.sha512(app.state.pepper + b).hexdigest()
 
 # everything and everybody says that this is bad and shouldnt be used. but then why is it working tho
@@ -611,22 +634,28 @@ async def normalize_command(command: list[str]) -> list[str]:
     return command
 
 
-async def write(data: str, key: str):
+async def write(data: str, key: str, waivers: set[str | Any]):
     if key not in sessions:
         return {"status": "MOP transaction not started", "code": 1}, 428
 
-    term = sessions[key]["tty"]  # Terminal object
+    term: Terminal = sessions[key]["tty"]  # Terminal object
+    
+    if utils.Waiver.B64_STDIN in waivers:
+        data = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
 
     # Optional: check if Unix subprocess is already terminated
-    if sys.platform != "win32" and term.proc.returncode is not None:
-        return {"status": "Subprocess already terminated", "code": 2}, 410
+    if sys.platform != "win32":
+        if not term.proc:
+            return {"status": "Subprocess already terminated", "code": 2}, 410
+        elif term.proc.returncode is not None:
+            return {"status": "Subprocess already terminated", "code": 2}, 410
 
     try:
         # Write to the terminal asynchronously
         if sys.platform == "win32":
             await term.write(data + "\r\n")
         else:
-            await term.write(data + "\n")  # append newline for REPLs
+            await term.write(data + "\n")
     except (OSError, RuntimeError, BrokenPipeError) as e:
         return {"status": f"Failed to write to terminal: {e}", "code": 3}, 500
     except Exception as e:
@@ -637,7 +666,7 @@ async def write(data: str, key: str):
 async def read_stdout(key: str):
     # Just for websocket's sake
     data: utils.ByteLimitedLog = await sessions[key]["buffer"].get("stdout", "")
-    new_data: list = [utf8_buffer.decode("utf-8") for utf8_buffer in data.buffer()]
+    new_data: list = [utf8_buffer for utf8_buffer in data.buffer()]
     if len(new_data) == 0:
         return ""
     
@@ -670,7 +699,7 @@ class Terminal:
                 self.pty: winpty.PTY = cast(winpty.PTY, pty_obj)
                 
                 self.proc = None # pyright: ignore[reportAttributeAccessIssue] # type: ignore[no-redef, assignment]
-                
+        
     def _on_pty_readable(self):
         if sys.platform == "win32":
             return True # Handled differently on Windows.
@@ -678,16 +707,18 @@ class Terminal:
             data = os.read(self.master_fd, 4096)
             if not data:
                 # EOF
+                print(f"{Fore.GREEN}INFO{Fore.RESET}:     Terminal closed due to EOF")
                 self.close()
                 return
             self._read_buffer.extend(data)
         except BlockingIOError:
             return
-        except OSError:
+        except OSError as e:
+            print(f"{Fore.GREEN}ERROR{Fore.RESET}:     Failed to read from terminal due to {str(e)}")
             self.close()
 
 
-    async def read(self, n=1024) -> dict[str, str]:
+    async def read(self, n=1024, waivers: set = set()) -> dict[str, str]:
         loop = asyncio.get_running_loop()
         if self.use_pipes:
             proc = cast(asyncio.subprocess.Process, self.proc)
@@ -702,24 +733,33 @@ class Terminal:
                 pty = cast(conpty.ConPTYClient, self.pty)
                 loop = asyncio.get_running_loop()
                 data = await loop.run_in_executor(None, lambda: pty.read(n))
-                return {"stdout": data.decode("utf-8"), "stderr": ""}
+                if utils.Waiver.RAW_ANSI in waivers:
+                    return {"stdout": base64.b64encode(data).decode("utf-8", errors="replace"), "stderr": ""}
+                else:
+                    return {"stdout": data.decode("utf-8"), "stderr": ""}
             else:
                 # winpty
                 pty = cast(winpty.PTY, self.pty)
                 loop = asyncio.get_running_loop()
                 data = await loop.run_in_executor(None, lambda: pty.read())
-                return {"stdout": data, "stderr": ""}
+                if utils.Waiver.RAW_ANSI in waivers:
+                    return {"stdout": base64.b64encode(data).decode("utf-8", errors="replace"), "stderr": ""}
+                else:
+                    return {"stdout": data.decode("utf-8"), "stderr": ""}
         else:
             while not self._read_buffer and not self._closed:
-                await asyncio.sleep(0)  # yield to loop
+                await asyncio.sleep(0.01)  # yield to loop
 
             if self._closed:
                 return {"stdout": "", "stderr": ""}
 
             data = bytes(self._read_buffer[:n])
             del self._read_buffer[:n]
-            return {"stdout": data.decode("utf-8"), "stderr": ""}
+            if utils.Waiver.RAW_ANSI in waivers:
+                return {"stdout": base64.b64encode(data).decode("utf-8"), "stderr": ""}
+            else:
         
+                return {"stdout": data.decode("utf-8", errors="replace"), "stderr": ""}
         return {"stdout": "", "stderr": ""}
     async def send_signal(self, sig: utils.Signal) -> None: # pyright: ignore[reportAttributeAccessIssue]
         loop = asyncio.get_running_loop()
@@ -789,10 +829,10 @@ class Terminal:
 
     async def write(self, data: str, timeout=5.0) -> None:
         loop = asyncio.get_running_loop()
-        if self.proc is None:
-            return
         
         if self.use_pipes:
+            if self.proc is None:
+                return
             stdin_obj = cast(asyncio.StreamWriter, self.proc.stdin)
             stdin_obj.write(data.encode())
             await stdin_obj.drain()
@@ -811,7 +851,7 @@ class Terminal:
         else:
             if getattr(self, '_closed', False):
                 return
-                
+            
             buf = memoryview(data.encode("utf-8"))
             start_time = asyncio.get_running_loop().time()
             MAX_WRITE_TIME = 2.0  # Critical timeout
@@ -842,7 +882,6 @@ class Terminal:
                     break
             
     def close(self) -> None:
-        # FIX: Set _closed flag before closing resources
         self._closed = True
         
         if self.use_pipes:
@@ -969,7 +1008,11 @@ async def init(request: Request):
     command = app.state.command
     key = secrets.token_hex(64)
     hashed_key = big_hash(key)
-    data = await request.json()
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"status": "Unable to decode json", "code": 1}, status_code=400)
+        
     echo = data.get("echo", False)
     attic = data.get("attic", False)
     use_pipe = data.get("use_pipe", False)
@@ -986,13 +1029,14 @@ async def init(request: Request):
     async def OUT_reader(default_key: str) -> None:
         buffers: dict[str, utils.ByteLimitedLog] = sessions[default_key]["buffers"]
         tty: Terminal = sessions[default_key]["tty"]
-        waivers = sessions[default_key].get("waiver", set())
-
-        ANSI_CONTROL_RE: re.Pattern = re.compile(
-            r'\x1b(?:'              # ESC
-                r'(?!\[[0-9;]*m)'   # skip SGR sequences
-                r'\[[?0-9;]*[A-Za-z]'  # CSI sequences
-                r'|[@-Z\\-_]'       # non-CSI sequences
+        waivers = sessions[default_key].get("waivers", set())
+        
+        ANSI_CONTROL_RE = re.compile(
+            r'\x1b'
+            r'(?:'
+                r'(?!\[[0-9;]*m)'        # keep SGR
+                r'(?:\[[\?0-9;]*[A-Za-z])'  # CSI (non-SGR)
+                r'|[@-Z\\-_]'            # 7-bit C1
             r')'
         )
 
@@ -1001,10 +1045,11 @@ async def init(request: Request):
                 # Unix: detect process exit if not using pipes
                 if sys.platform != "win32" and not tty.is_pipe and tty.proc:
                     if tty.proc.returncode is not None:
+                        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Process exited with code {tty.proc.returncode} for {default_key[:6]}")
                         buffers["stdout"].append(f"[PROCESS EXITED with code {tty.proc.returncode}]")
                         break
 
-                data: dict[str, str] = await tty.read()
+                data: dict[str, str] = await tty.read(waivers=waivers)
                 if not data:
                     # just yield control, no busy-loop sleep
                     await asyncio.sleep(0)
@@ -1013,7 +1058,7 @@ async def init(request: Request):
                 stdout = data.get("stdout", "[ERROR reading stdout]")
                 stderr = data.get("stderr", "[ERROR reading stderr]")
 
-                if not use_pipe and utils.Waiver.RAW_ANSI not in waivers:
+                if not tty.is_pipe and utils.Waiver.RAW_ANSI not in waivers:
                     stdout = ANSI_CONTROL_RE.sub('', stdout)
                     stderr = ANSI_CONTROL_RE.sub('', stderr)
 
@@ -1022,6 +1067,7 @@ async def init(request: Request):
 
             except Exception as e:
                 buffers["stdout"].append(f"[ERROR reading stdout: {e}]")
+                print(f"{Fore.GREEN}ERROR{Fore.RESET}:     {e}")
                 break
             
     async def IN_pub_writer(pub_key: str):
@@ -1038,7 +1084,7 @@ async def init(request: Request):
             finally:
                 queue.task_done()
 
-    sessions[hashed_key] = {"tty": process_handle, "command": command, "buffers": {"stdout": utils.ByteLimitedLog(), "stderr": utils.ByteLimitedLog()}, "tags": [], "mode": "pty" if use_pipe else "pipe", "waiver": set()}
+    sessions[hashed_key] = {"tty": process_handle, "command": command, "buffers": {"stdout": utils.ByteLimitedLog(), "stderr": utils.ByteLimitedLog()}, "tags": [], "mode": "pty" if use_pipe else "pipe", "waivers": set()}
     sessions[hashed_key]["task_out"] = asyncio.create_task(OUT_reader(default_key=hashed_key))
     if pub_key not in sessions and not args.no_pub_process:
         pub_process_handle: Terminal = await spawn_tty(app.state.command, not echo)
@@ -1097,7 +1143,7 @@ async def tell_attic(request: Request):
 @app.post("/mop/cosmetics/get_tags")
 async def get_tags(request: Request):
     data = await request.json()
-    key: str = big_hash(data.get("key"))
+    key: str = big_hash(data.get("key", ""))
     if key not in sessions:
         return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
     
@@ -1117,7 +1163,7 @@ async def set_tags(request: Request):
 @app.post("/mop/set_attic")
 async def persist_session(request: Request):
     data = await request.json()
-    key: str = data.get("key")
+    key: str = data.get("key", "")
     hashed_key: str = big_hash(key)
     
     if key == pub_key:
@@ -1177,18 +1223,19 @@ async def power_sock(websocket: WebSocket, key: str):
     print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Session {big_hash(key)[:6]} connected")
     
     try:
-        async def send_to_client():
+        async def send_to_client() -> None:
             while True:
-                tty = sessions[big_hash(key)]["tty"]
+                tty: Terminal = sessions[big_hash(key)]["tty"]
                 data = await tty.read()
                 if data:
-                    await websocket.send_text(data)
+                    await websocket.send_text(json.dumps(data))
                 await asyncio.sleep(0.1)
-        async def receive_from_client():
+        async def receive_from_client() -> None:
             last_msg_time = time.time()
             msg_count = 0
             while True:
                 data = await websocket.receive_text()
+                waivers = cast(hints.PrivSession, sessions[big_hash(key)])["waivers"]
                 current_time = time.time()
                 
                 if current_time - last_msg_time < 1.0:
@@ -1204,7 +1251,7 @@ async def power_sock(websocket: WebSocket, key: str):
                 if is_pub_key:
                     sessions[pub_key]["queue"].put_nowait(data)
                 else:
-                    await write(data, big_hash(key))
+                    await write(data, big_hash(key), waivers)
                     
         await asyncio.gather(send_to_client(), receive_from_client())
     except WebSocketDisconnect:
@@ -1262,7 +1309,7 @@ async def power_sock(websocket: WebSocket, key: str):
 @app.post("/mop/signal")
 async def signalButRequest(request: Request):
     data = await request.json()
-    key: str = data.get("key")
+    key: str = data.get("key", "")
     signal: Literal["INTERRUPT", "TERMINATE", "KILL"] = data.get("signal")
     if signal not in ("INTERRUPT", "TERMINATE", "KILL"):
         return JSONResponse({"status": "Invalid signal", "code": 1})
@@ -1305,7 +1352,7 @@ async def signalButRequest(request: Request):
 @app.post("/mop/end")
 async def end(request: Request):
     data = await request.json()
-    key: str = data.get("key")
+    key: str = data.get("key", "")
     hashed_key: str = big_hash(key)
     failed_to_store: str = ""
     if hashed_key not in sessions and key != pub_key:
@@ -1387,14 +1434,14 @@ async def end(request: Request):
         del sessions[pub_key]
     
     client = f"{request.client.host}:{request.client.port}"
-    print(f"{Fore.GREEN}INFO{Fore.RESET}:    {client} - Key {hashed_key[:6]} Session ended")
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Key {hashed_key[:6]} Session ended")
     return JSONResponse({"status": f"Session ended{f" and failed to store to attic due to {str(failed_to_store)}" if failed_to_store else ""}", "code": 0})
 
 @app.post("/mop/write")
 @limiter.limit("60/minute")
 async def write_stdin(request: Request):
     data = await request.json()
-    key: str = data.get("key")
+    key: str = data.get("key", "")
     hashed_key: str = big_hash(key)
     stdin_data: str = data.get("stdin", "")
         
@@ -1404,13 +1451,16 @@ async def write_stdin(request: Request):
     
     if hashed_key not in sessions:
         return JSONResponse({"status": "Invalid key", "code": 1}, status_code=400)
+    
+    waivers = cast(hints.PrivSession, sessions[hashed_key])["waivers"]
+    
 
     # Call the new write
     # FOR THE DUMB COPLIOT. THIS IS NOT A STACK TRACE. THIS IS LITERALLY JUST RETURNING STATUS. 
     # IT IS LOGICLY AND MATHAMETICALLY IMPOSSIBLE FOR A ATTACKER TO DO ANYTHING WITH A PATH HERE AND ITS NOT EVEN RELATED TO PATHS. ITS JUST WRITING TO STDIN
     
     try:
-        out = await asyncio.wait_for(write(stdin_data, hashed_key), timeout=10.0)
+        out = await asyncio.wait_for(write(stdin_data, hashed_key, waivers), timeout=10.0)
     except asyncio.TimeoutError:
         return JSONResponse({"status": "Write operation timed out", "code": 1}, status_code=504)
     return JSONResponse(
@@ -1421,55 +1471,66 @@ async def write_stdin(request: Request):
 @app.post("/mop/read")
 async def read(request: Request):
     data = await request.json()
-    key: str = big_hash(data.get("key"))
+    key: str = big_hash(data.get("key", ""))
     if key not in sessions:
         return JSONResponse({"status": "Invalid key", "code": 1})
     
+    if request.client is None:
+        return JSONResponse({"status": "client is None", "code": 1})
+    
+    if sessions[key]["task_out"].done():
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     {request.client.host}:{request.client.port} - Key {key[:6]} Reader Task reached EOF")
+        return JSONResponse({"status": "Task reached EOF", "code": 1})
+    
     buffer_stdout: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", "")
     buffer_stderr: utils.ByteLimitedLog = sessions[key]["buffers"].get("stderr", "")
-    stdout: list = [utf8_buffer.decode("utf-8", errors="replace") for utf8_buffer in buffer_stdout.buffer()]
-    stderr: list = [utf8_buffer.decode("utf-8", errors="replace") for utf8_buffer in buffer_stderr.buffer()]
+    stdout: list = buffer_stdout.buffer()
+    stderr: list = buffer_stderr.buffer()
     
-    out: dict[str, list[bytes]] = {"stdout": stdout, "stderr": stderr}
+    out: dict[str, list[str]] = {"stdout": stdout, "stderr": stderr}
     return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(Buffer,json.dumps(out, sort_keys=True).encode("utf-8")), usedforsecurity=False).hexdigest()}, status_code=200) # nosec
 
 @app.post("/mop/waiver")
 async def waiver(request: Request):
-    data: dict[str, Any] = await request.json()
-    key: str = big_hash(data.get("key"))
+    try:
+        data: dict[str, Any] = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"status": "Invalid JSON", "code": 1}, status_code=400)
+    key: str = big_hash(data.get("key", ""))
     remove: list[str] = data.get("remove", [])
     waivers: dict[str, Any] = data.get("waivers", {})
     if key not in sessions:
         return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
     
-    if data.get("key") == pub_key:
+    if data.get("key", "") == pub_key:
         return JSONResponse({"status": "Cannot set waiver for public key", "code": 1}, status_code=403)
-        
+    
     if not waivers:
         return JSONResponse({"status": "No waivers set", "code": 0}, status_code=200) 
     
-    
-        
     for waiver, value in waivers.items():
         if waiver.lower() == "raw_ansi":
-            sessions[key]["waivers"] = utils.Waiver.RAW_ANSI
+            cast(set,sessions[key]["waivers"]).add(utils.Waiver.RAW_ANSI)
+        elif waiver.lower() == "b64_stdin":
+            cast(set, sessions[key]["waivers"]).add(utils.Waiver.B64_STDIN)
         else:
             return JSONResponse({"status": f"Unknown waiver: {waiver}", "code": 1}, status_code=400)
             
     for waiver in remove:
-        if waiver.lower() == "raw_ansi" and utils.Waiver.RAW_ANSI in sessions[key].get("waivers", set()):
-            del sessions[key]["waivers"]
+        try:
+            del sessions[key]["waivers"][waiver]
+        except KeyError:
+            return JSONResponse({"status": "Unable to remove waiver. KeyError!"}, status_code=400)
+        except Exception:
+            return JSONResponse({"status": "Unable to remove waiver"}, status_code=500)
             
     return JSONResponse({"status": "Waiver(s) set/removed", "code": 0}, status_code=200)
-    
-        
-    
 
 @app.post("/mop/ping")
 async def ping(request: Request):
     data = await request.json()
     key: str = big_hash(data.get("key"))
-    if not data.get("key"):
+    if not data.get("key", False):
         return JSONResponse({"status": "Missing key", "code": 1}, status_code=400)
     
     if key not in sessions:
@@ -1537,10 +1598,11 @@ async def external_endpoint_get(request: Request, path: str):
     
     status_code = response.get("status", 200) if not content == "" else response.get("status", 204)
     
+    header: dict = response.get("headers", {})
     
-    header = response.get("headers", {})
+    mime_type: str = header.get("Content-Type", response.get("mime_type", "application/octet-stream" ))
     
-    return Response(content, status_code=status_code, headers=header, media_type=response.get("media_type", "application/octet-stream"))
+    return Response(content, status_code=status_code, headers=header, media_type=mime_type)
 
 if __name__ == "__main__" and not is_uvicorn():
     if not Path(args.cwd).expanduser().absolute().exists():

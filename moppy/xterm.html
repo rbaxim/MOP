@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en" class="dark bg-terminal-bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MOP Session Terminal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            'terminal-bg': '#0c0c0c',
+            'terminal-text': '#f0f0f0',
+            'terminal-green': '#4ade80',
+            'terminal-red': '#f87171',
+            'terminal-blue': '#60a5fa',
+            'terminal-gray': '#555555',
+            'terminal-yellow': '#facc15'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap');
+    body {
+      font-family: 'Fira Code', monospace;
+      background-color: #0c0c0c;
+      color: #f0f0f0;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    #terminal-container {
+      width: 100%;
+      height: calc(100vh - 80px);
+      background-color: #000;
+      position: relative;
+    }
+    #terminal-header {
+      height: 40px;
+      background: linear-gradient(to right, #1a1a1a 0%, #0f0f0f 100%);
+      border-bottom: 1px solid #333;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      justify-content: space-between;
+      font-family: 'Fira Code', monospace;
+      font-size: 14px;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+    }
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .status-badge {
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-badge::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .status-alive::before { background-color: #4ade80; }
+    .status-offline::before { background-color: #f87171; animation: blink 1s infinite; }
+    .status-terminated::before { background-color: #94a3b8; }
+    .header-controls {
+      display: flex;
+      gap: 8px;
+    }
+    .control-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #f0f0f0;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Fira Code', monospace;
+      font-weight: bold;
+    }
+    .control-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+    .control-btn.danger:hover {
+      background: rgba(248, 113, 113, 0.2);
+    }
+    .control-btn.copy:hover {
+      background: rgba(96, 165, 250, 0.2);
+    }
+    #session-key-display {
+      background: rgba(0, 0, 0, 0.4);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'Fira Code', monospace;
+      font-size: 13px;
+      margin-left: 8px;
+      letter-spacing: 0.5px;
+    }
+    @keyframes blink {
+      50% { opacity: 0.3; }
+    }
+    .blink {
+      animation: blink 1s step-end infinite;
+    }
+    #terminal-footer {
+      height: 40px;
+      background: linear-gradient(to top, #1a1a1a 0%, #0f0f0f 100%);
+      border-top: 1px solid #333;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      font-family: 'Fira Code', monospace;
+      font-size: 13px;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+    }
+    .footer-item {
+      display: flex;
+      align-items: center;
+      margin-right: 20px;
+    }
+    .footer-label {
+      color: #71717a;
+      margin-right: 6px;
+    }
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .status-dot.alive { background-color: #4ade80; }
+    .status-dot.offline { background-color: #f87171; }
+    .status-dot.offline.blink { animation: blink 1s infinite; }
+    .hidden { display: none; }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.85);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-content {
+      background-color: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 24px;
+      width: 90%;
+      max-width: 500px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+    .modal-title {
+      font-size: 1.25rem;
+      font-weight: bold;
+      margin-bottom: 16px;
+      color: #facc15;
+    }
+    .modal-text {
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .modal-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+    .modal-btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-family: 'Fira Code', monospace;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .modal-btn.cancel {
+      background-color: #3f3f46;
+      color: #f0f0f0;
+    }
+    .modal-btn.confirm {
+      background-color: #f87171;
+      color: #000;
+    }
+    .modal-btn:hover {
+      opacity: 0.9;
+    }
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-family: 'Fira Code', monospace;
+      font-size: 14px;
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      transform: translateX(400px);
+      transition: transform 0.3s ease-out;
+    }
+    .notification.show {
+      transform: translateX(0);
+    }
+    .notification.success {
+      background-color: #4ade80;
+      color: #000;
+    }
+    .notification.error {
+      background-color: #f87171;
+      color: #000;
+    }
+    .notification.info {
+      background-color: #60a5fa;
+      color: #000;
+    }
+    #initialization-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #0c0c0c;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      color: #f0f0f0;
+      font-family: 'Fira Code', monospace;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid rgba(96, 165, 250, 0.3);
+      border-top: 4px solid #60a5fa;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .init-message {
+      text-align: center;
+      max-width: 600px;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .init-step {
+      margin: 8px 0;
+      padding-left: 20px;
+      position: relative;
+    }
+    .init-step::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: #60a5fa;
+    }
+    .init-step.ok::before {
+      content: "✓";
+      color: #4ade80;
+    }
+    .init-step.error::before {
+      content: "✗";
+      color: #f87171;
+    }
+  </style>
+</head>
+<body>
+  <div id="initialization-screen">
+    <div class="spinner"></div>
+    <div class="init-message">
+      <h2 class="text-xl font-bold text-terminal-blue mb-4">Initializing MOP Session</h2>
+      <div id="init-steps">
+        <div class="init-step">Connecting to server...</div>
+      </div>
+    </div>
+  </div>
+  
+  <div id="terminal-header" class="hidden">
+    <div class="header-title">
+      <span class="text-terminal-green font-bold">MOP SESSION</span>
+      <span id="session-key-display">Loading...</span>
+    </div>
+    <div class="header-controls">
+      <div id="status-badge" class="status-badge status-offline blink">OFFLINE</div>
+      <button id="copy-key" class="control-btn copy" title="Copy Session Key" disabled>⧉</button>
+      <button id="disconnect" class="control-btn danger" title="Terminate Session" disabled>✖</button>
+    </div>
+  </div>
+  
+  <div id="terminal-container" class="hidden"></div>
+  
+  <div id="terminal-footer" class="hidden">
+    <div class="connection-status">
+      <div class="status-dot offline blink"></div>
+      <span id="connection-status-text">Initializing...</span>
+    </div>
+    <div class="footer-item">
+      <span class="footer-label">Protocol:</span>
+      <span id="protocol-status">MOP/1.0</span>
+    </div>
+    <div class="footer-item">
+      <span class="footer-label">Terminal:</span>
+      <span>xterm-256color</span>
+    </div>
+  </div>
+  
+  <div id="end-session-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-title">TERMINATE SESSION</div>
+      <div class="modal-text">
+        Are you sure you want to terminate this session?<br>
+        This action cannot be undone. All session data will be lost.
+      </div>
+      <div class="modal-buttons">
+        <button id="cancel-end" class="modal-btn cancel">CANCEL</button>
+        <button id="confirm-end" class="modal-btn confirm">TERMINATE</button>
+      </div>
+    </div>
+  </div>
+  
+  <div id="notification" class="notification">
+    <span id="notification-text"></span>
+  </div>
+
+  <script>
+    // DOM Elements
+    const initScreen = document.getElementById('initialization-screen');
+    const initSteps = document.getElementById('init-steps');
+    const terminalHeader = document.getElementById('terminal-header');
+    const terminalContainer = document.getElementById('terminal-container');
+    const terminalFooter = document.getElementById('terminal-footer');
+    const statusBadge = document.getElementById('status-badge');
+    const sessionKeyDisplay = document.getElementById('session-key-display');
+    const copyKeyBtn = document.getElementById('copy-key');
+    const disconnectBtn = document.getElementById('disconnect');
+    const connectionStatusDot = document.querySelector('.connection-status .status-dot');
+    const connectionStatusText = document.getElementById('connection-status-text');
+    const endSessionModal = document.getElementById('end-session-modal');
+    const cancelEndBtn = document.getElementById('cancel-end');
+    const confirmEndBtn = document.getElementById('confirm-end');
+    const notification = document.getElementById('notification');
+    const notificationText = document.getElementById('notification-text');
+    
+    // State variables
+    const API_BASE = '';
+    let sessionKey = null;
+    let term = null;
+    let fitAddon = null;
+    let webLinksAddon = null;
+    let isAlive = false;
+    let shouldReconnect = true;
+    let lastOutputLength = 0;
+    let hasSetWaiver = false;
+    let reconnectTimeout = null;
+    let echoEnabled = false;
+    
+    // Add initialization step message
+    function addInitStep(message, status = '') {
+      const step = document.createElement('div');
+      step.className = `init-step ${status}`;
+      step.textContent = message;
+      initSteps.appendChild(step);
+      return step;
+    }
+    
+    // Initialize xterm.js terminal
+    function initTerminal() {
+      term = new Terminal({
+        theme: {
+          background: '#000000',
+          foreground: '#f0f0f0',
+          cursor: '#f0f0f0',
+          selection: 'rgba(255, 255, 255, 0.3)',
+          black: '#000000',
+          red: '#f87171',
+          green: '#4ade80',
+          yellow: '#facc15',
+          blue: '#60a5fa',
+          magenta: '#c084fc',
+          cyan: '#22d3ee',
+          white: '#f0f0f0',
+          brightBlack: '#555555',
+          brightRed: '#fca5a5',
+          brightGreen: '#86efac',
+          brightYellow: '#fde047',
+          brightBlue: '#93c5fd',
+          brightMagenta: '#d8b4fe',
+          brightCyan: '#5eead4',
+          brightWhite: '#ffffff'
+        },
+        fontSize: 14,
+        fontFamily: "'Fira Code', monospace",
+        cursorBlink: true,
+        scrollback: 9000,
+        tabStopWidth: 4,
+        rows: 242,
+        cols: 80
+      });
+      
+      fitAddon = new FitAddon.FitAddon();
+      webLinksAddon = new WebLinksAddon.WebLinksAddon();
+      
+      term.loadAddon(fitAddon);
+      term.loadAddon(webLinksAddon);
+      term.open(terminalContainer);
+      fitAddon.fit();
+      
+      // Handle terminal resize
+      window.addEventListener('resize', () => {
+        if (fitAddon) fitAddon.fit();
+        if (term) term.scrollToBottom();
+      });
+      
+      // Initial fit
+      fitAddon.fit();
+      
+      // Write welcome message after initialization completes
+      term.writeln('\x1b[1;32mModular Protocol Server Terminal\x1b[0m');
+      term.writeln('\x1b[2mSession established. Type commands below.\x1b[0m');
+      term.write('\r\n');
+      
+      term.scrollToBottom();
+    }
+    
+    // Base64 URL decode function
+    function base64UrlDecode(input) {
+      if (Array.isArray(input)) {
+        return input.map(part => base64UrlDecode(part)).join('');
+      }
+      
+      if (typeof input !== 'string') return '';
+      
+      let base64 = input.replace(/-/g, '+').replace(/_/g, '/');
+      
+      while (base64.length % 4) {
+        base64 += '=';
+      }
+      
+      try {
+        const binaryString = atob(base64);
+        const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+        return new TextDecoder('utf-8').decode(bytes);
+      } catch (e) {
+        console.error("Failed to decode chunk:", input, e);
+        return '';
+      }
+    }
+    
+    // Update session status display
+    function updateStatus(text, statusClass) {
+      statusBadge.textContent = text;
+      statusBadge.className = 'status-badge ' + statusClass;
+      
+      if (statusClass.includes('alive')) {
+        connectionStatusDot.className = 'status-dot alive';
+        connectionStatusText.textContent = 'Connected';
+      } else if (statusClass.includes('offline')) {
+        connectionStatusDot.className = 'status-dot offline blink';
+        connectionStatusText.textContent = 'Disconnected';
+      } else if (statusClass.includes('terminated')) {
+        connectionStatusDot.className = 'status-dot terminated';
+        connectionStatusText.textContent = 'Terminated';
+      }
+    }
+    
+    // Show notification
+    function showNotification(message, type = 'info') {
+      notificationText.textContent = message;
+      notification.className = `notification ${type} show`;
+      
+      setTimeout(() => {
+        notification.classList.remove('show');
+      }, 3000);
+    }
+    
+    // Check server status
+    async function fetchServerStatus() {
+      const step = addInitStep("Checking server status...");
+      try {
+        const res = await fetch(`${API_BASE}/mop/process`);
+        if (!res.ok && res.status != 428) 
+          throw new Error(`Server status: ${res.status}`);
+        
+        const data = await res.json();
+        step.textContent = "Server status: Online";
+        step.className = "init-step ok";
+        return true;
+      } catch (err) {
+        step.textContent = `Server status: Offline - ${err.message}`;
+        step.className = "init-step error";
+        return false;
+      }
+    }
+    
+    // Create new session
+    async function createNewSession() {
+      const step = addInitStep("Creating new session...");
+      try {
+        const initResponse = await fetch(`${API_BASE}/mop/init`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ "echo": echoEnabled })
+        });
+        
+        if (!initResponse.ok) {
+          throw new Error(`Init failed: ${initResponse.status}`);
+        }
+        
+        const data = await initResponse.json();
+        step.textContent = "Session created successfully";
+        step.className = "init-step ok";
+        return data.key;
+      } catch (err) {
+        step.textContent = `Session creation failed: ${err.message}`;
+        step.className = "init-step error";
+        return null;
+      }
+    }
+    
+    // Set RAW_ANSI waiver
+    async function setWaiver(key) {
+      const step = addInitStep("Setting terminal waiver...");
+      try {
+        const waiverResponse = await fetch(`${API_BASE}/mop/waiver`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: key,
+            waivers: { "RAW_ANSI": true, "B64_STDIN": true}
+          })
+        });
+        
+        if (!waiverResponse.ok) {
+          const errorText = await waiverResponse.text();
+          throw new Error(`Waiver failed: ${errorText}`);
+        }
+        
+        step.textContent = "Waivers enabled";
+        step.className = "init-step ok";
+        return true;
+      } catch (err) {
+        step.textContent = `Waiver setup failed: ${err.message}`;
+        step.className = "init-step error";
+        return false;
+      }
+    }
+    
+    // Validate existing session
+    async function validateSession(key) {
+      try {
+        const res = await fetch(`${API_BASE}/mop/validate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key })
+        });
+        
+        const result = await res.json();
+        return result.code === 0;
+      } catch (err) {
+        return false;
+      }
+    }
+    
+    // Ping session status
+    async function pingSession() {
+      try {
+        const res = await fetch(`${API_BASE}/mop/ping`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: sessionKey })
+        });
+        
+        if (res.ok) {
+          isAlive = true;
+          updateStatus('ALIVE', 'status-alive');
+          return true;
+        } else if (res.status === 410) {
+          isAlive = false;
+          updateStatus('TERMINATED', 'status-terminated');
+          shouldReconnect = false;
+          showNotification('Session has been terminated', 'error');
+          return false;
+        } else {
+          isAlive = false;
+          updateStatus('UNKNOWN', 'status-offline blink');
+          return false;
+        }
+      } catch (err) {
+        isAlive = false;
+        updateStatus('OFFLINE', 'status-offline blink');
+        return false;
+      }
+    }
+    
+    // Fetch and render output
+    async function fetchOutput() {
+      if (!isAlive || !shouldReconnect) return;
+      
+      try {
+        const res = await fetch(`${API_BASE}/mop/read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: sessionKey })
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          
+          if (Array.isArray(data.stdout)) {
+            // Process only new data
+            if (data.stdout.length > lastOutputLength) {
+              const newChunks = data.stdout.slice(lastOutputLength);
+              const decoded = base64UrlDecode(newChunks);
+              
+              // Write to terminal
+              term.write(decoded);
+              term.scrollToBottom();
+              
+              lastOutputLength = data.stdout.length;
+            }
+          }
+        } else if (res.status === 404 || res.status === 400) {
+          updateStatus('INVALID', 'status-terminated');
+          shouldReconnect = false;
+          showNotification('Invalid session key', 'error');
+        }
+      } catch (err) {
+        // Silent fail - ping will handle connectivity status
+      }
+    }
+
+    function Base64UrlEncode(utf8String) {
+      const utf8Bytes = new TextEncoder().encode(utf8String);
+
+      const binaryString = String.fromCharCode(...utf8Bytes);
+
+      const standardBase64 = btoa(binaryString);
+
+      const urlSafeBase64 = standardBase64
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+
+      return urlSafeBase64;
+    }
+    
+    // Send input to server
+    async function sendInput(command) {
+      if (!isAlive || !command.trim()) return;
+      
+      try {
+        const res = await fetch(`${API_BASE}/mop/write`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: sessionKey, stdin: Base64UrlEncode(command) })
+        });
+        
+        if (!res.ok) {
+          showNotification(`Write error: ${res.status}`, 'error');
+        }
+      } catch (err) {
+        showNotification(`Write failed: ${err.message}`, 'error');
+      }
+    }
+    
+    // Send signal to server
+    async function sendSignal(signal) {
+      try {
+        await fetch(`${API_BASE}/mop/signal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: sessionKey, signal })
+        });
+      } catch (err) {
+        console.warn('Send signal failed:', err);
+      }
+    }
+    
+    // End session
+    async function endSession() {
+      try {
+        await fetch(`${API_BASE}/mop/end`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: sessionKey })
+        });
+      } catch (err) {
+        console.warn('End session failed:', err);
+      } finally {
+        localStorage.removeItem('mop_key');
+        localStorage.removeItem('mop_pub_key');
+        showNotification('Session terminated', 'info');
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 1500);
+      }
+    }
+    
+    // Session loop
+    async function sessionLoop() {
+      while (shouldReconnect) {
+        await pingSession();
+        
+        if (isAlive && !hasSetWaiver) {
+          // Waiver should already be set during init, but double-check
+          await setWaiver(sessionKey);
+          hasSetWaiver = true;
+        }
+        
+        if (isAlive) {
+          await fetchOutput();
+        }
+        
+        // Wait before next iteration (faster when alive)
+        await new Promise(r => setTimeout(r, isAlive ? 300 : 2000));
+      }
+    }
+    
+    // Initialize session - handles auth flow
+    async function initSession() {
+      // Step 1: Check server status
+      const serverOk = await fetchServerStatus();
+      if (!serverOk) {
+        addInitStep("Cannot proceed without server connection", "error");
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 3000);
+        return;
+      }
+      
+      // Step 2: Get session key from URL or localStorage
+      const urlParams = new URLSearchParams(window.location.search);
+      let key = urlParams.get('key') || localStorage.getItem('mop_key') || localStorage.getItem('mop_pub_key');
+      
+      // Step 3: Validate existing key or create new session
+      if (key) {
+        const step = addInitStep("Validating existing session...");
+        const isValid = await validateSession(key);
+        if (isValid) {
+          step.textContent = "Existing session validated";
+          step.className = "init-step ok";
+        } else {
+          step.textContent = "Session invalid or expired - creating new session";
+          step.className = "init-step error";
+          localStorage.removeItem('mop_key');
+          localStorage.removeItem('mop_pub_key');
+          key = null;
+        }
+      }
+      
+      // Step 4: Create new session if needed
+      if (!key) {
+        key = await createNewSession();
+        if (!key) {
+          addInitStep("Failed to create session. Redirecting to home...", "error");
+          setTimeout(() => {
+            window.location.href = '/';
+          }, 3000);
+          return;
+        }
+        // Save as private session key
+        localStorage.setItem('mop_key', key);
+      }
+      
+      // Step 5: Set waiver
+      const waiverSet = await setWaiver(key);
+      if (!waiverSet) {
+        addInitStep("Failed to set terminal waiver. Session may not render correctly.", "error");
+        // Continue anyway, but terminal might not work properly
+      }
+      
+      // Step 6: Initialize terminal UI
+      sessionKey = key;
+      initTerminal();
+      
+      // Step 7: Show terminal UI and hide init screen
+      setTimeout(() => {
+        initScreen.style.display = 'none';
+        terminalHeader.classList.remove('hidden');
+        terminalContainer.classList.remove('hidden');
+        terminalFooter.classList.remove('hidden');
+        
+        // Enable controls
+        copyKeyBtn.disabled = false;
+        disconnectBtn.disabled = false;
+        
+        // Display truncated key
+        sessionKeyDisplay.textContent = `${key.substring(0, 8)}...${key.substring(key.length - 6)}`;
+        
+        // Start session loop
+        hasSetWaiver = true;
+        isAlive = true;
+        updateStatus('ALIVE', 'status-alive');
+        sessionLoop();
+        
+        // Set up event listeners
+        copyKeyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(sessionKey).then(() => {
+            showNotification('Session key copied to clipboard', 'success');
+          }).catch(err => {
+            showNotification('Failed to copy key', 'error');
+          });
+        });
+        
+        disconnectBtn.addEventListener('click', () => {
+          endSessionModal.style.display = 'flex';
+        });
+        
+        cancelEndBtn.addEventListener('click', () => {
+          endSessionModal.style.display = 'none';
+        });
+        
+        confirmEndBtn.addEventListener('click', () => {
+          endSessionModal.style.display = 'none';
+          endSession();
+        });
+        
+        // Handle Ctrl+C globally
+        /* document.addEventListener('keydown', (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+            e.preventDefault();
+            if (isAlive) {
+              sendSignal('INTERRUPT');
+              term.write('\r\n\x1b[31m^C\x1b[0m\r\n');
+              showNotification('INTERRUPT signal sent', 'info');
+            }
+          }
+          
+          // Handle Ctrl+L to clear terminal
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+            e.preventDefault();
+            term.clear();
+          }
+        }); */
+        
+        // Handle terminal focus
+        terminalContainer.addEventListener('click', () => {
+          term.focus();
+        });
+
+        function stringToHexUTF8(str) {
+          const encoder = new TextEncoder();
+          const data = encoder.encode(str);
+          return Array.from(data)
+            .map(byte => byte.toString(16).padStart(2, "0"))
+            .join("");
+        }
+
+        
+        let inputBuffer = '';
+        term.onData(e => {
+          console.log("Recieved Input: ", stringToHexUTF8(e))
+          const charCode = e.charCodeAt(0);
+          if (!isAlive) return;
+
+          if (charCode >= 1 && charCode <= 26 && e !== '\r' && e !== '\t') {
+            console.log(`Detected Control Key: Ctrl+${String.fromCharCode(charCode + 64)} (Hex: ${charCode.toString(16)})`);
+            
+            term.write(`^${String.fromCharCode(charCode + 64)}`)
+            sendInput(e); 
+            return;
+          }
+          
+          if (e === '\r') { 
+            console.log("Detected Enter")
+            sendInput(inputBuffer);
+            inputBuffer = '';
+            term.write("\r\n")
+          } else if (stringToHexUTF8(e).startsWith("1b")) {
+            console.log("Detected: ESC code")
+            sendInput(e)
+          } else if (e === '\x7f') { // Backspace
+            if (inputBuffer.length > 0) {
+              console.log("Detected: Backspace")
+              inputBuffer = inputBuffer.slice(0, -1);
+              term.write('\b \b');
+          }
+          } else if (e >= ' ' || e === '\t') { 
+            console.log("Detected: Raw")
+            inputBuffer += e;
+            term.write(e);
+          } 
+          
+        });
+        
+        // Add visual feedback for terminal focus
+        term.textarea.addEventListener('focus', () => {
+          terminalContainer.style.boxShadow = '0 0 0 2px rgba(96, 165, 250, 0.5)';
+        });
+        
+        term.textarea.addEventListener('blur', () => {
+          terminalContainer.style.boxShadow = 'none';
+        });
+        
+        // Initial focus
+        term.focus();
+      }, 500);
+    }
+    
+    // Initialize on load
+    window.addEventListener('load', initSession);
+    
+    // Cleanup on unload
+    window.addEventListener('beforeunload', () => {
+      shouldReconnect = false;
+      clearTimeout(reconnectTimeout);
+    });
+  </script>
+</body>
+</html>

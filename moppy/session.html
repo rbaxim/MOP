@@ -102,6 +102,7 @@
     let old_data_length = 0
     let ctrlCPressed = false;
     let hasNotCtrlCBeenPressed = true;
+    let stdout_offset = 0;
     const ansi_up = new AnsiUp();
     const outputEl = document.getElementById('terminal-output');
     const inputEl = document.getElementById('stdin-input');
@@ -170,6 +171,39 @@
       }
     }
 
+    function base64UrlDecode(input) {
+      // If input is an array, process each part and join them
+      if (Array.isArray(input)) {
+        return input.map(part => base64UrlDecode(part)).join('');
+      }
+
+      // Fallback: if input is null or not a string, return empty
+      if (typeof input !== 'string') return '';
+
+      // 1. Normalize URL-safe characters
+      let base64 = input.replace(/-/g, '+').replace(/_/g, '/');
+
+      // 2. Fix padding
+      while (base64.length % 4) {
+        base64 += '=';
+      }
+
+      try {
+        // 3. Decode binary string
+        const binaryString = atob(base64);
+
+        // 4. Convert to bytes for UTF-8 support
+        const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+
+        // 5. Return the decoded string
+        return new TextDecoder('utf-8').decode(bytes);
+      } catch (e) {
+        console.error("Failed to decode chunk:", input, e);
+        return '';
+      }
+    }
+    
+
     // Fetch and render output
     async function fetchOutput() {
         if (!isAlive && !shouldReconnect) return;
@@ -184,21 +218,35 @@
             if (res.ok) {
             const data = await res.json();
             if (Array.isArray(data.stdout)) {
-                // Join array of strings into a single scrollable output
                 if (data.stdout.length > old_data_length) {
-                  old_data_length = data.stdout.length
-                  try {
-                    outputEl.innerHTML = ansi_up.ansi_to_html(data.stdout.join('')); 
-                  } catch {
-                    outputEl.innerHTML = data.stdout.join('').replace(/(?:\x1B|\u001b)\\[[0-?]*[ -/]*[@-~]/g, '');
-                  }
-                  scrollToBottom();
+                    old_data_length = data.stdout.length;
+
+                    // Decode the ENTIRE stdout array (all chunks)
+                    const fullDecoded = base64UrlDecode(data.stdout); // ← your function handles list → str
+
+                    // Find the LAST occurrence of \x1b[2J in the full decoded string
+                    const lastClearIndex = fullDecoded.lastIndexOf('\x1b[2J');
+
+                    let displayText;
+                    if (lastClearIndex !== -1) {
+                        // Show everything AFTER the last clear
+                        displayText = fullDecoded.slice(lastClearIndex + 4); // 4 = length of '\x1b[2J'
+                    } else {
+                        // No clear: show everything
+                        displayText = fullDecoded;
+                    }
+
+                    try {
+                        outputEl.innerHTML = ansi_up.ansi_to_html(displayText);
+                    } catch {
+                        outputEl.innerHTML = displayText.replace(/(?:\x1B|\u001b)\[[0-?]*[ -/]*[@-~]/g, '');
+                    }
+
+                    scrollToBottom();
+                } else {
+                  console.log('No new data')
                 }
-            } else if (typeof data.stdout === 'string') {
-                // Fallback in case I later switch to string
-                outputEl.textContent = data.stdout;
-                scrollToBottom();
-            }
+            } 
             } else if (res.status === 404 || res.status === 400) {
             updateStatus('Invalid Session', 'bg-terminal-red', false);
             shouldReconnect = false;

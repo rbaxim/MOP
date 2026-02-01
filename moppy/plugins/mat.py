@@ -161,6 +161,15 @@ async def ui_session(request: Request):
     except FileNotFoundError:
         return PlainTextResponse("The server owner has not installed the UI. (Location: \"/ui/session\")", status_code=404)
     
+@app.get("/ui/xterm")
+async def xterm(request: Request):
+    # try:
+    with open("xterm.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+    # except FileNotFoundError:
+    #     return PlainTextResponse("The server owner has not installed the xterm client. (Location: \"/xterm\")", status_code=404)
+    
+    
 @app.get("/client", include_in_schema=False)
 @app.get("/client/{full_path:path}")
 @etag_response

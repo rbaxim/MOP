@@ -123,6 +123,7 @@
     let lastSyncTimestamp = 0;    // timestamp when server uptime was fetched
     let lastServerId = null;
     let uptimeInterval;
+    let debug = false;
 
     let pubKey = null;
 
@@ -279,22 +280,46 @@
 
     // Event Listeners
     createBtn.addEventListener('click', async () => {
-      if (!await fetchServerStatus()) return;
-      fetch(`${API_BASE}/mop/init`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({"echo": true}) })
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
+      try {
 
-          return response.json();
-        })
-        .then(data => {
-          window.location.href = `session`;
-          localStorage.setItem('mop_key', data.key);
-        })
-        .catch(err => {
-          console.error(err);
-        })
+        const statusOk = await fetchServerStatus();
+        if (!statusOk) return;
+        
+        const initResponse = await fetch(`${API_BASE}/mop/init`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ "echo": true })
+        });
+
+        if (!initResponse.ok) {
+          throw new Error(`Init failed: ${initResponse.status}`);
+        }
+
+        const data = await initResponse.json();
+        console.log('Response:', data);
+        
+        localStorage.setItem('mop_key', data.key);
+
+        const waiverResponse = await fetch(`${API_BASE}/mop/waiver`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: data.key,
+            waivers: { "RAW_ANSI": true }
+          })
+        });
+
+        if (!waiverResponse.ok) {
+          const errorText = await waiverResponse.text();
+          console.error(`Waiver Error: ${errorText}, status: ${waiverResponse.status}`);
+          return; 
+        }
+
+        window.location.href = `session`;
+
+      } catch (err) {
+        console.error('Sequence failed:', err);
+      }
     });
 
     joinPublicBtn.addEventListener('click', () => {

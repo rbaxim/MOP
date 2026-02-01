@@ -60,9 +60,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Bandit with SARIF support
-        run: pip install "bandit[sarif]"
-
       - name: Run Bandit
         continue-on-error: true
         run: |

@@ -44,8 +44,8 @@ class ByteLimitedLog:
     def get_full_buffer(self) -> bytes:
         return b"".join(self.lines)
     
-    def buffer(self) -> list[bytes]:
-        return list(self.lines)
+    def buffer(self) -> list[str]:
+        return [utf8_buffer.decode('utf-8', errors='replace') for utf8_buffer in list(self.lines)]
 
 
 session: aiohttp.ClientSession | None = None  # global
@@ -243,4 +243,5 @@ def preexec(slave_fd: int, disable_echo: bool) -> None:
     os.close(slave_fd)
     
 class Waiver(Enum):
-    RAW_ANSI = auto()
+    RAW_ANSI = "RAW_ANSI"
+    B64_STDIN = "B64_STDIN"
