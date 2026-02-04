@@ -13,6 +13,70 @@ import shlex
 from enum import Enum, auto
 import sys
 from collections import deque
+import os
+from pathlib import Path
+from typing import cast
+import moppy.hints as hints
+
+def moppy_path():
+    if Path("./moppy").exists():
+        os.environ["MOPPY_PATH"] = str(Path("./moppy").absolute())
+        return True, Path("./moppy").absolute()
+    else:
+        moppy_path = os.environ.get("MOPPY_PATH", None)
+        if moppy_path is None:
+            print("[ERROR] MOPPY_PATH environment variable not set. Either move to the parent directory of moppy or set the variable to the path of moppy.")
+            sys.exit(1)
+        
+        if Path(moppy_path).exists() and Path(moppy_path).is_dir():
+            return True, Path(moppy_path).absolute()
+        elif Path(moppy_path).exists() and Path(moppy_path).is_file():
+            print(f"[ERROR] MOPPY_PATH environment variable points to a file: {moppy_path}")
+            sys.exit(1)
+        else:
+            print(f"[ERROR] MOPPY_PATH environment variable points to an invalid path: {moppy_path}")
+            sys.exit(1)
+
+MOPPY: Path = cast(Path, moppy_path()[1])
+
+def moppy_dir(child: Path | str) -> Path:
+    return MOPPY / Path(child) 
+
+def get_certs():
+    cert_dir = moppy_dir("certs")
+    ssl_cert, ssl_key = None, None
+    
+    if any(cert_dir.glob("*.key")):
+        cert_files = list(cert_dir.glob("*.pem"))
+        key_files = list(cert_dir.glob("*.key"))
+
+        if cert_files and key_files:
+            # We take the first match found
+            ssl_cert = str(cert_files[0].absolute())
+            ssl_key = str(key_files[0].absolute())
+            return ssl_cert, ssl_key
+        
+    for file in cert_dir.glob("*.pem"):
+        content = file.read_text()
+        if "PRIVATE KEY" in content:
+            ssl_key = str(file.absolute())
+        elif "CERTIFICATE" in content:
+            ssl_cert = str(file.absolute())
+        
+    return ssl_cert, ssl_key
+
+with open(moppy_dir("plugins/manifest.json"), "r") as f:
+        try:
+            manifest: hints.Plugin_Manifest = json.load(f)
+        except json.JSONDecodeError:
+            print("[ERROR] Invalid plugin manifest!")
+            sys.exit(1)
+        except FileNotFoundError:
+            print("[ERROR] Plugin manifest not found!")
+            sys.exit(1)
+        except Exception as e:
+            print(f"[ERROR] Failed to load plugin manifest: {e}")
+            sys.exit(1)
 
 class ByteLimitedLog:
     def __init__(self, max_bytes=1048576, max_lines=9000):
@@ -21,10 +85,10 @@ class ByteLimitedLog:
         self.current_bytes = 0
         self.max_lines = max_lines
 
-    def append(self, line_str):
+    def append(self, line_str: str):
         # We encode to utf-8 to get the actual byte weight
         line_bytes = line_str.encode('utf-8')
-        line_len = len(line_bytes)
+        line_len: int = len(line_bytes)
 
         # If a single line is bigger than the whole buffer, 
         # you might want to truncate it or handle it specially.
@@ -40,6 +104,56 @@ class ByteLimitedLog:
         while self.current_bytes > self.max_bytes or len(self.lines) > self.max_lines:
             removed_line = self.lines.popleft()
             self.current_bytes -= len(removed_line)
+            
+    def extend(self, data: bytes):
+        """Allows direct ingestion of raw bytes from the OS reader."""
+        if not data:
+            return
+
+        data_len = len(data)
+        
+        # If the incoming chunk is absurdly large, truncate to avoid the 'hang'
+        if data_len > self.max_bytes:
+            data = data[-self.max_bytes:]
+            data_len = self.max_bytes
+
+        self.lines.append(data)
+        self.current_bytes += data_len
+
+        while (self.current_bytes > self.max_bytes or 
+               len(self.lines) > self.max_lines):
+            removed = self.lines.popleft()
+            self.current_bytes -= len(removed)
+            
+    def pop_bytes(self, n: int) -> bytes:
+        if n <= 0:
+            return b""
+        
+        collected = []
+        bytes_got = 0
+        
+        while self.lines and bytes_got < n:
+            chunk = self.lines.popleft()
+            chunk_len = len(chunk)
+            
+            if bytes_got + chunk_len <= n:
+                # We need the whole chunk
+                collected.append(chunk)
+                bytes_got += chunk_len
+                self.current_bytes -= chunk_len
+            else:
+                # We only need part of this chunk
+                needed = n - bytes_got
+                collected.append(chunk[:needed])
+                
+                # Put the remainder back at the front of the deque
+                remainder = chunk[needed:]
+                self.lines.appendleft(remainder)
+                
+                self.current_bytes -= needed
+                bytes_got += needed
+                
+        return b"".join(collected)
 
     def get_full_buffer(self) -> bytes:
         return b"".join(self.lines)
@@ -59,7 +173,7 @@ async def get_session():
 
 def make_ssl_context():
     try:
-        ctx = ssl.create_default_context(cafile="./moppy/certs/cert.pem")  
+        ctx = ssl.create_default_context(cafile=get_certs()[0])  
     except Exception:
         # http, main server warns about this. so its usually safe in this case
         ctx = ssl.create_default_context()
@@ -131,10 +245,12 @@ def get_command_by_pid(pid):
     except psutil.AccessDenied:
         return "Permission denied (try running as sudo/admin)."
     
-# This code is not so modular and you will need to add pieces of code here for modifications of core/not-core plugins
 class attic():
     def __init__(self, key: str, pid: int):
         # Key is prehashed
+        if not manifest["attic"]["enabled"]:
+            raise RuntimeError("Core Plugin Attic is disabled")
+        
         self.key = key
         self._content = {}
         self.pid = pid
@@ -194,7 +310,7 @@ class external_endpoint():
         self.path = path
         
         if external_endpoint.json_endpoints == {}:
-            with open("./moppy/mop_custom_endpoints.json", "r") as f:
+            with open(moppy_dir("mop_custom_endpoints.json"), "r") as f:
                 external_endpoint.json_endpoints = json.loads(f.read())
         for endpoint in external_endpoint.json_endpoints["endpoints"]:
             if endpoint["path"].lstrip("/") == self.path.lstrip("/") and endpoint["method"].upper() == method.upper():
@@ -245,3 +361,4 @@ def preexec(slave_fd: int, disable_echo: bool) -> None:
 class Waiver(Enum):
     RAW_ANSI = "RAW_ANSI"
     B64_STDIN = "B64_STDIN"
+    STREAM_STDIN = "STREAM_STDIN"

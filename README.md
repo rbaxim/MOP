@@ -168,6 +168,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 | --- | --- | --- |
 | ```RAW_ANSI``` | Flag | Disables MOP's ANSI filtering and returns the full, raw terminal output (including non-SGR escape sequences). Outputs in Url Safe Base64 |
 | ```B64_STDIN``` | Flag | Lets you give URL Safe Base64 binary data to the PTY |
+| ```STREAM_STDIN``` | Flag | Tells MOP to not add any line endings unless explicitly told to add line endings |
 
 ## Security and Warnings
 

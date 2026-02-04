@@ -42,6 +42,9 @@
       height: calc(100vh - 80px);
       background-color: #000;
       position: relative;
+
+      margin-top: 40px;
+      margin-bottom: 40px;
     }
     #terminal-header {
       height: 40px;
@@ -381,6 +384,7 @@
     const confirmEndBtn = document.getElementById('confirm-end');
     const notification = document.getElementById('notification');
     const notificationText = document.getElementById('notification-text');
+    const nonSgrRegex = /\x1b\[[0-9;?]*[A-LPR-Zf-ituv]/g;
     
     // State variables
     const API_BASE = '';
@@ -394,6 +398,7 @@
     let hasSetWaiver = false;
     let reconnectTimeout = null;
     let echoEnabled = false;
+    let isTuiActive = false;
     
     // Add initialization step message
     function addInitStep(message, status = '') {
@@ -434,13 +439,15 @@
         cursorBlink: true,
         scrollback: 9000,
         tabStopWidth: 4,
-        rows: 242,
-        cols: 80
+        // rows: 50,
+        // cols: 160
       });
       
       fitAddon = new FitAddon.FitAddon();
       webLinksAddon = new WebLinksAddon.WebLinksAddon();
       
+      terminalContainer.classList.remove('hidden')
+
       term.loadAddon(fitAddon);
       term.loadAddon(webLinksAddon);
       term.open(terminalContainer);
@@ -462,6 +469,18 @@
       
       term.scrollToBottom();
     }
+
+    function detectNcurses(data) {
+        if (data.includes('\x1b[?1049h') || data.includes('\x1b[?1h')) {
+            return true;
+        }
+
+        if (/\x1b\[([0-9]+;[0-9]+)?H/.test(data) || /\x1b\[[12]J/.test(data)) {
+            return true;
+        }
+
+        return false;
+    }
     
     // Base64 URL decode function
     function base64UrlDecode(input) {
@@ -469,21 +488,33 @@
         return input.map(part => base64UrlDecode(part)).join('');
       }
       
-      if (typeof input !== 'string') return '';
-      
+      if (typeof input !== 'string' || input === '') return '';
+
+      // THE FIX: If it contains raw escape sequences or non-B64 chars, 
+      // it's likely already raw data. Just return it.
+      if (input.includes('\x1b') || input.includes('\n')) {
+        return input;
+      }
+
       let base64 = input.replace(/-/g, '+').replace(/_/g, '/');
-      
       while (base64.length % 4) {
         base64 += '=';
       }
-      
+
       try {
+        // Check if it's even valid Base64 structure before atob
+        if (!/^[A-Za-z0-9+/=]*$/.test(base64)) {
+            return input; // It's raw text, pass it through
+        }
+
         const binaryString = atob(base64);
         const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
         return new TextDecoder('utf-8').decode(bytes);
       } catch (e) {
-        console.error("Failed to decode chunk:", input, e);
-        return '';
+        // If it fails, htop might have sent a partial chunk. 
+        // Return the raw input so the terminal at least tries to render it.
+        console.warn("Soft fail on decode, passing raw:", input);
+        return input; 
       }
     }
     
@@ -567,7 +598,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             key: key,
-            waivers: { "RAW_ANSI": true, "B64_STDIN": true}
+            waivers: { "RAW_ANSI": true, "B64_STDIN": true, "STREAM_STDIN": true}
           })
         });
         
@@ -620,15 +651,18 @@
           updateStatus('TERMINATED', 'status-terminated');
           shouldReconnect = false;
           showNotification('Session has been terminated', 'error');
+          localStorage.removeItem("mop_key")
           return false;
         } else {
           isAlive = false;
           updateStatus('UNKNOWN', 'status-offline blink');
+          localStorage.removeItem("mop_key")
           return false;
         }
       } catch (err) {
         isAlive = false;
         updateStatus('OFFLINE', 'status-offline blink');
+        localStorage.removeItem("mop_key")
         return false;
       }
     }
@@ -655,7 +689,14 @@
               
               // Write to terminal
               term.write(decoded);
-              term.scrollToBottom();
+              
+              if (!isTuiActive && detectNcurses(decoded)) {
+                  console.log("Detected ncurses");
+                  isTuiActive = true;
+                  term.write('\x1b[?1h'); 
+              }
+
+              // term.scrollToBottom();
               
               lastOutputLength = data.stdout.length;
             }
@@ -672,27 +713,28 @@
 
     function Base64UrlEncode(utf8String) {
       const utf8Bytes = new TextEncoder().encode(utf8String);
+      
+      // Avoid spread operator to prevent "Maximum call stack size exceeded"
+      let binaryString = "";
+      const len = utf8Bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binaryString += String.fromCharCode(utf8Bytes[i]);
+      }
 
-      const binaryString = String.fromCharCode(...utf8Bytes);
-
-      const standardBase64 = btoa(binaryString);
-
-      const urlSafeBase64 = standardBase64
+      return btoa(binaryString)
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
-
-      return urlSafeBase64;
     }
     
     // Send input to server
-    async function sendInput(command) {
-      if (!isAlive || !command.trim()) return;
+    async function sendInput(command, newline=false) {
+      if (!isAlive) return;
       
       try {
         const res = await fetch(`${API_BASE}/mop/write`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: sessionKey, stdin: Base64UrlEncode(command) })
+          body: JSON.stringify({ key: sessionKey, stdin: Base64UrlEncode(command), newline: newline })
         });
         
         if (!res.ok) {
@@ -769,8 +811,7 @@
       }
       
       // Step 2: Get session key from URL or localStorage
-      const urlParams = new URLSearchParams(window.location.search);
-      let key = urlParams.get('key') || localStorage.getItem('mop_key') || localStorage.getItem('mop_pub_key');
+      let key = localStorage.getItem('mop_key') || localStorage.getItem('mop_pub_key');
       
       // Step 3: Validate existing key or create new session
       if (key) {
@@ -854,24 +895,7 @@
           endSessionModal.style.display = 'none';
           endSession();
         });
-        
-        // Handle Ctrl+C globally
-        /* document.addEventListener('keydown', (e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-            e.preventDefault();
-            if (isAlive) {
-              sendSignal('INTERRUPT');
-              term.write('\r\n\x1b[31m^C\x1b[0m\r\n');
-              showNotification('INTERRUPT signal sent', 'info');
-            }
-          }
-          
-          // Handle Ctrl+L to clear terminal
-          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
-            e.preventDefault();
-            term.clear();
-          }
-        }); */
+
         
         // Handle terminal focus
         terminalContainer.addEventListener('click', () => {
@@ -887,7 +911,6 @@
         }
 
         
-        let inputBuffer = '';
         term.onData(e => {
           console.log("Recieved Input: ", stringToHexUTF8(e))
           const charCode = e.charCodeAt(0);
@@ -903,24 +926,23 @@
           
           if (e === '\r') { 
             console.log("Detected Enter")
-            sendInput(inputBuffer);
-            inputBuffer = '';
-            term.write("\r\n")
-          } else if (stringToHexUTF8(e).startsWith("1b")) {
-            console.log("Detected: ESC code")
-            sendInput(e)
-          } else if (e === '\x7f') { // Backspace
-            if (inputBuffer.length > 0) {
+            if (isTuiActive) {
+              sendInput("\r");
+            } else {
+              sendInput("", true);
+              term.write("\r\n")
+            }
+          } else if (e === '\x7f') {
               console.log("Detected: Backspace")
-              inputBuffer = inputBuffer.slice(0, -1);
+              sendInput('\x7f')
               term.write('\b \b');
-          }
-          } else if (e >= ' ' || e === '\t') { 
+          } else { 
             console.log("Detected: Raw")
-            inputBuffer += e;
-            term.write(e);
+            if (!stringToHexUTF8(e).startsWith("1b")) {
+              term.write(e)
+            }
+            sendInput(e);
           } 
-          
         });
         
         // Add visual feedback for terminal focus

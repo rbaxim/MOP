@@ -40,7 +40,7 @@ def is_uv_available() -> bool:
         return False
 
 def get_certs():
-    cert_dir = Path("./moppy/certs")
+    cert_dir = moppy_dir("certs")
     ssl_cert, ssl_key = None, None
     
     if any(cert_dir.glob("*.key")):
@@ -54,7 +54,7 @@ def get_certs():
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found KEY and CERTIFICATE")
             return ssl_cert, ssl_key
         else:
-            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /moppy/certs")
+            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  .pem or .key file missing in /moppy/certs")
         
         
     
@@ -68,15 +68,16 @@ def get_certs():
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found CERTIFICATE")
         
     if not ssl_cert or not ssl_key:
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     .pem or .key file missing in /moppy/certs")
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  .pem or .key file missing in /moppy/certs")
     return ssl_cert, ssl_key
 
 def is_docker():
     return os.environ.get("AM_I_IN_A_DOCKER_CONTAINER", "false").lower() == "true" or "moapy" in os.getcwd()
 
-def cwd_switch():
+def moppy_path():
     if Path("./moppy").exists():
-        return True, Path("./moppy")
+        os.environ["MOPPY_PATH"] = str(Path("./moppy").absolute())
+        return True, Path("./moppy").absolute()
     else:
         moppy_path = os.environ.get("MOPPY_PATH", None)
         if moppy_path is None:
@@ -84,8 +85,7 @@ def cwd_switch():
             sys.exit(1)
         
         if Path(moppy_path).exists() and Path(moppy_path).is_dir():
-            os.chdir(moppy_path)
-            return True, Path(moppy_path).parent
+            return True, Path(moppy_path).absolute
         elif Path(moppy_path).exists() and Path(moppy_path).is_file():
             print(f"[ERROR] MOPPY_PATH environment variable points to a file: {moppy_path}")
             sys.exit(1)
@@ -93,6 +93,11 @@ def cwd_switch():
             print(f"[ERROR] MOPPY_PATH environment variable points to an invalid path: {moppy_path}")
             sys.exit(1)
 
+MOPPY: Path = cast(Path, moppy_path()[1])
+
+def moppy_dir(child: Path | str) -> Path:
+    return MOPPY / Path(child) 
+    
     
 uv = is_uv_available()
 
@@ -101,7 +106,7 @@ if __name__ == "__main__":
     print("[INFO] Is frozen: " + str(is_frozen()))
     print("[INFO] Is uv available: " + str(uv))
     print("[INFO] Is docker: " + str(is_docker()))
-    print("[INFO] Found Moppy: " + str(cwd_switch()[0]))
+    print("[INFO] Found Moppy: " + str(moppy_path()[0]))
     
     
 
@@ -168,7 +173,7 @@ def pip_check_dependency(package_name: str):
 
 if not is_frozen() and __name__ == "__main__":
     
-    if not Path("./moppy/pickles/pickle.jpeg").exists():
+    if not moppy_dir("pickles/pickle.jpeg").exists():
         print("[CRITICAL] pickle.jpeg is missing. attempting to boot without it. May fail with a extremely high chance")
         time.sleep(2)
         print(f"[CRITICAL] FAILED TO BOOT. STATUS CODE: {r"\xff\xfe\x00\x00C\x00\x00\x00O\x00\x00\x00M\x00\x00\x00P\x00\x00\x00L\x00\x00\x00E\x00\x00\x00T\x00\x00\x00E\x00\x00\x00 \x00\x00\x00F\x00\x00\x00A\x00\x00\x00I\x00\x00\x00L\x00\x00\x00U\x00\x00\x00R\x00\x00\x00E\x00\x00\x00'"}")
@@ -267,23 +272,23 @@ def steal_port(port):
         return
     
     if port and not args.force_port:
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     Port {args.port} is already in use by PID {used_port}.")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     Process name: {ps_port.name()}")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     Process status: {ps_port.status()}")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     Process PPID: {ps_PPID.pid}")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     Process PPID name: {ps_PPID.name()}")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     Process PPID status: {ps_PPID.status()}")
-        kill = input(f"{Fore.RED}ERROR{Fore.RESET}:     Do you want to kill the process? (y/n): ")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Port {args.port} is already in use by PID {used_port}.")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process name: {ps_port.name()}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process status: {ps_port.status()}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process PPID: {ps_PPID.pid}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process PPID name: {ps_PPID.name()}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process PPID status: {ps_PPID.status()}")
+        kill = input(f"{Fore.RED}ERROR{Fore.RESET}:    Do you want to kill the process? (y/n): ")
         if kill.lower() == "y":
             try:
                 ps_port.terminate()
                 print(f"{Fore.GREEN}INFO{Fore.RESET}:     Attempted to kill process. (SIGTERM)")
                 ps_port.wait(timeout=3)
             except psutil.NoSuchProcess:
-                print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to kill process.")
+                print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
                 sys.exit(1)
             except psutil.TimeoutExpired:
-                print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     Process did not terminate in time. Attempting to kill it with SIGKILL.")
+                print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Process did not terminate in time. Attempting to kill it with SIGKILL.")
                 try:
                     ps_port.kill()
                 except psutil.NoSuchProcess:
@@ -291,21 +296,21 @@ def steal_port(port):
                     is_killed = True 
         is_not_killed = get_pid_by_port(args.port)
         if is_not_killed:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to kill process.")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
             sys.exit(1)
         elif not is_killed: # Confusing logic, i know
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process.")
     elif used_port and args.force_port:
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     Port {args.port} is already in use by PID {used_port}. Forcing...")
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Port {args.port} is already in use by PID {used_port}. Forcing...")
         try:
             ps_port.terminate()
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Attempted to kill process. (SIGTERM)")
             ps_port.wait(timeout=3)
         except psutil.NoSuchProcess:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to kill process.")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
             sys.exit(1)
         except psutil.TimeoutExpired:
-            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     Process did not terminate in time. Attempting to kill it with SIGKILL.")
+            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Process did not terminate in time. Attempting to kill it with SIGKILL.")
             try:
                 ps_port.kill()
                 ps_port.wait(timeout=3)
@@ -313,45 +318,46 @@ def steal_port(port):
                 print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process. (Process died after timeout)")
                 is_killed = True 
             except psutil.TimeoutExpired:
-                print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to kill process.")
+                print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
                 sys.exit(1)
         is_not_killed = get_pid_by_port(args.port)
         if is_not_killed:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to kill process.")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
             sys.exit(1)
         elif not is_killed: # Confusing logic, i know
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process.")
             
 pem_count = 0
 
-for i in Path("./moppy/certs/").glob("*.pem"):
+for i in moppy_dir("certs").glob("*.pem"):
     pem_count += 1
 
 is_ssl_certs_exists = pem_count >= 1            
 
 if args.ssl and not is_ssl_certs_exists:
-    print(f"{Fore.RED}ERROR{Fore.RESET}:     .pem or .key file missing in /moppy/certs")
-    prompt = input(f"{Fore.YELLOW}WARNING{Fore.RESET}:     Generate new SSL certificates? (y/n): ")
+    print(f"{Fore.RED}ERROR{Fore.RESET}:    .pem or .key file missing in /moppy/certs")
+    prompt = input(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Generate new SSL certificates? (y/n): ")
     if prompt.lower() != "y":
         print(f"{Fore.YELLOW}INFO{Fore.RESET}:     Exiting... Remove --ssl to disable SSL.")
         sys.exit(1)
-    os.system(sys.executable + " ./moppy/ssl_certs.py")            
+    os.system(sys.executable + str(moppy_dir("ssl_certs.py")))            
 
 if __name__ == "__main__":
-    global core_plugins
-    core_plugins = {}        
+    global core_plugins, non_core_plugins
+    core_plugins: hints.Plugin_Manifest = {}
+    non_core_plugins: hints.Plugin_Manifest  = {}  
     f: TextIO # pyright: ignore[reportRedeclaration]
-    with open("moppy/plugins/manifest.json", "r") as f:
+    with open(moppy_dir("plugins/manifest.json"), "r") as f:
         try:
-            manifest = json.load(f)
+            manifest: hints.Plugin_Manifest = json.load(f)
         except json.JSONDecodeError:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     Invalid plugin manifest!")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Invalid plugin manifest!")
             sys.exit(1)
         except FileNotFoundError:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     Plugin manifest not found!")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Plugin manifest not found!")
             sys.exit(1)
         except Exception as e:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to load plugin manifest: {e}")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to load plugin manifest: {e}")
             sys.exit(1)
 
     for name, plugin in manifest.items():
@@ -359,27 +365,30 @@ if __name__ == "__main__":
             core_plugins[name] = plugin
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found core plugin: {name}")
         else:
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Skipping non-core plugin: {name}")
-    
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found non-core plugin: {name}")
+            non_core_plugins[name] = plugin
+            
     for name, plugin in core_plugins.items():
         missing = missing_deps(plugin.get("dependencies", []))
         if missing:
             for dep in missing:
-                print(f"{Fore.RED}ERROR{Fore.RESET}:     Missing dependency: {dep}, Installing...")
+                print(f"{Fore.RED}ERROR{Fore.RESET}:    Missing dependency: {dep}, Installing...")
                 install_package(dep)
                 check = pip_check_dependency(dep)
                 if check["ok"]:
                     print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully installed dependency: {dep}")
                 else:
-                    print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to install dependency: {dep}, Issues: {check['issues']}")
+                    print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to install dependency: {dep}, Issues: {check['issues']}")
                     sys.exit(1)
     
     safe_core_plugins = core_plugins.copy()
+    safe_non_core_plugins = non_core_plugins.copy()
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting all core plugins")
     for name, plugin in safe_core_plugins.items():
         runtime = plugin["runtime"]
-        runtime = runtime.format(location=plugin["location"], port=plugin["port"] if plugin["port"] else "", host=args.host)
-        current_cwd = os.getcwd()
-        mop_cwd = os.path.join(current_cwd, "moppy")
+        plugin_location = plugin["location"].format(MOPPY=str(moppy_dir(plugin["location"].replace("{MOPPY}", ""))))
+        runtime = runtime.format(location=plugin_location, port=plugin["port"] if plugin["port"] else "", host=args.host)
+        mop_cwd = MOPPY
         
         steal_port(plugin["port"])
         
@@ -392,27 +401,62 @@ if __name__ == "__main__":
             cmd.append(str(Path(key).absolute()))
         core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd)
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting core plugin:", name + f" at port {plugin['port']}" if plugin["port"] else "")
-        
+        core_plugin_handle: subprocess.Popen = cast(subprocess.Popen, core_plugins[name]["handle"])
         time.sleep(0.5)
-        if core_plugins[name]["handle"].poll() is None:
+        if core_plugin_handle.poll() is None:
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     {name} is running!")
         else:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     {name} failed to start!")
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     Stdout: {core_plugins[name]['handle'].stdout.read().decode('utf-8')}")
-            print(f"{Fore.RED}ERROR{Fore.RESET}:     Stderr: {core_plugins[name]['handle'].stderr.read().decode('utf-8')}")
+            assert core_plugin_handle.stdout is not None, "Did you remove the pipe for stdout?"
+            assert core_plugin_handle.stderr is not None, "Did you remove the pipe for stderr?"
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    {name} failed to start!")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Stdout: {core_plugin_handle.stdout.read().decode('utf-8', replace=True)}")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Stderr: {core_plugin_handle.stderr.read().decode('utf-8', replace=True)}")
+            sys.exit(1)
+    
+    
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     All core plugins are running!")
+    
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting all non-core plugins")
+    for name, plugin in safe_non_core_plugins.items():
+        runtime = plugin["runtime"]
+        runtime = runtime.format(location=plugin["location"], port=plugin["port"] if plugin["port"] else "", host=args.host)
+        mop_cwd = MOPPY
+        
+        steal_port(plugin["port"])
+        
+        cmd = shlex.split(runtime)
+        if "ssl" in plugin["supports"] and args.ssl:
+            cert, key = cast(tuple[str, str], get_certs())
+            cmd.append("--ssl-certfile")
+            cmd.append(str(Path(cert).absolute()))
+            cmd.append("--ssl-keyfile")
+            cmd.append(str(Path(key).absolute()))
+        non_core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd)
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting plugin:", name + f" at port {plugin['port']}" if plugin["port"] else "")
+        none_core_plugin_handle = cast(subprocess.Popen, core_plugins[name]["handle"])
+        time.sleep(0.5)
+        if none_core_plugin_handle.poll() is None:
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     {name} is running!")
+        else:
+            assert none_core_plugin_handle.stdout is not None, "Did you remove the pipe for stdout?"
+            assert none_core_plugin_handle.stderr is not None, "Did you remove the pipe for stderr?"
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    {name} failed to start!")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Stdout: {none_core_plugin_handle.stdout.read().decode('utf-8', replace=True)}")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Stderr: {none_core_plugin_handle.stderr.read().decode('utf-8', replace=True)}")
             sys.exit(1)
             
-    print(f"{Fore.GREEN}INFO{Fore.RESET}:     All core plugins are running!")
-    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Loading required scripts...")
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     All non-core plugins are running!")
     
-    scripts = Path("moppy/scripts").glob("*.py")
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Running required scripts...")
+    
+    scripts = moppy_dir("scripts").glob("*.py")
     
     for script in scripts:
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Loading script: {script}")
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Running script: {script}")
         handle = subprocess.Popen(["python", str(script)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while handle.poll() is None:
             time.sleep(0.5)
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Loaded script: {script}")
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Ran script: {script}")
 
 def is_uvicorn():
     try:
@@ -455,7 +499,7 @@ if sys.platform == "win32":
         # TODO: Fix this before 3.16
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     else:
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     You are using a python version that has deprecated the WindowsSelectorEventLoopPolicy. This may cause issues. Please use 3.13.2 or lower.")
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  You are using a python version that has deprecated the WindowsSelectorEventLoopPolicy. This may cause issues. Please use 3.13.2 or lower.")
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # pyright: ignore[reportAttributeAccessIssue] Stub doesnt have it yet
@@ -465,9 +509,9 @@ if sys.platform == "win32":
     try:
         import ConPTYBridge.conpty as conpty
         IS_CONPTY_AVAILABLE = True
-        conpty_dll_path = Path("./ConPTYBridge/bin/Release/net8.0/ConPTYBridge.dll")
+        conpty_dll_path = moppy_dir("ConPTYBridge/bin/Release/net8.0/ConPTYBridge.dll")
     except ImportError:
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     You are not using my C# ConPTY wrapper for python. It is heavily recommended you install/build it for extra features")
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  You are not using the C# ConPTY wrapper for python. It is heavily recommended you install/build it for extra features")
         import winpty # pyright: ignore[reportMissingImports]
 else:
     import fcntl
@@ -481,9 +525,10 @@ env.update({
     "TERM": "xterm",
     "LANG": "C.UTF-8",
     "LC_ALL": "C.UTF-8",
+    "LANGUAGE": "C.UTF-8"
 })
 
-sessions: dict[str, dict] = {}
+sessions: hints.Session_storage = {}
 
 open("mop.log", "w").close()
 
@@ -547,22 +592,22 @@ app.state.pepper =  b""
 
 try:
     f_pepper: BinaryIO 
-    with open("moppy/pepper", "rb") as f_pepper:
+    with open(moppy_dir("pepper"), "rb") as f_pepper:
         f_pepper = cast(BinaryIO, f_pepper)
         app.state.pepper = bytes(base91.decode(f_pepper.read().split("🌶️".encode("utf-8"))[0]))
     
     if sys.platform != "win32":
-        os.chmod("moppy/pepper", 0o600)
+        os.chmod(moppy_dir("pepper"), 0o600)
 except FileNotFoundError:
     # Salt isnt found/generated yet
     app.state.pepper = secrets.token_bytes(32)
     f_pepper2: BinaryIO
-    with open("moppy/pepper", "wb") as f_pepper2:
+    with open(moppy_dir("pepper"), "wb") as f_pepper2:
         f_pepper2 = cast(BinaryIO, f_pepper2)
         f_pepper2.write(base91.encode(app.state.pepper).encode("utf-8") + "🌶️".encode("utf-8"))
         
     if sys.platform != "win32":
-        os.chmod("moppy/pepper", 0o600)
+        os.chmod(moppy_dir("pepper"), 0o600)
         
 def big_hash(s) -> str:
     if s is None: 
@@ -652,10 +697,13 @@ async def write(data: str, key: str, waivers: set[str | Any]):
 
     try:
         # Write to the terminal asynchronously
-        if sys.platform == "win32":
-            await term.write(data + "\r\n")
+        if utils.Waiver.STREAM_STDIN in waivers:
+            await term.write(data)
         else:
-            await term.write(data + "\n")
+            if sys.platform == "win32":
+                await term.write(data + "\r\n")
+            else:
+                await term.write(data + "\n")
     except (OSError, RuntimeError, BrokenPipeError) as e:
         return {"status": f"Failed to write to terminal: {e}", "code": 3}, 500
     except Exception as e:
@@ -665,7 +713,7 @@ async def write(data: str, key: str, waivers: set[str | Any]):
 
 async def read_stdout(key: str):
     # Just for websocket's sake
-    data: utils.ByteLimitedLog = await sessions[key]["buffer"].get("stdout", "")
+    data: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", utils.ByteLimitedLog())
     new_data: list = [utf8_buffer for utf8_buffer in data.buffer()]
     if len(new_data) == 0:
         return ""
@@ -714,11 +762,11 @@ class Terminal:
         except BlockingIOError:
             return
         except OSError as e:
-            print(f"{Fore.GREEN}ERROR{Fore.RESET}:     Failed to read from terminal due to {str(e)}")
+            print(f"{Fore.GREEN}ERROR{Fore.RESET}:    Failed to read from terminal due to {str(e)}")
             self.close()
 
 
-    async def read(self, n=1024, waivers: set = set()) -> dict[str, str]:
+    async def read(self, n=1024, waivers: set[Any] = set()) -> dict[str, str]:
         loop = asyncio.get_running_loop()
         if self.use_pipes:
             proc = cast(asyncio.subprocess.Process, self.proc)
@@ -758,9 +806,9 @@ class Terminal:
             if utils.Waiver.RAW_ANSI in waivers:
                 return {"stdout": base64.b64encode(data).decode("utf-8"), "stderr": ""}
             else:
-        
                 return {"stdout": data.decode("utf-8", errors="replace"), "stderr": ""}
         return {"stdout": "", "stderr": ""}
+        
     async def send_signal(self, sig: utils.Signal) -> None: # pyright: ignore[reportAttributeAccessIssue]
         loop = asyncio.get_running_loop()
 
@@ -794,7 +842,7 @@ class Terminal:
                     None, os.killpg, os.getpgid(self.proc.pid), unix_sig
                 )
             except Exception:
-                print(f"{Fore.RED}ERROR{Fore.RESET}:     Failed to send signal to {self.proc.pid}. Process unexepectedly died?")
+                print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to send signal to {self.proc.pid}. Process unexepectedly died?")
             return
         else:
             pty = cast(Union["winpty.PTY", "conpty.ConPTYClient"], self.pty)
@@ -1014,7 +1062,7 @@ async def init(request: Request):
         return JSONResponse({"status": "Unable to decode json", "code": 1}, status_code=400)
         
     echo = data.get("echo", False)
-    attic = data.get("attic", False)
+    attic: Union[str, bool] = data.get("attic", False)
     use_pipe = data.get("use_pipe", False)
     
     if request.client is None:
@@ -1027,7 +1075,7 @@ async def init(request: Request):
     
     
     async def OUT_reader(default_key: str) -> None:
-        buffers: dict[str, utils.ByteLimitedLog] = sessions[default_key]["buffers"]
+        buffers: hints.buffers_dict = sessions[default_key]["buffers"]
         tty: Terminal = sessions[default_key]["tty"]
         waivers = sessions[default_key].get("waivers", set())
         
@@ -1049,7 +1097,7 @@ async def init(request: Request):
                         buffers["stdout"].append(f"[PROCESS EXITED with code {tty.proc.returncode}]")
                         break
 
-                data: dict[str, str] = await tty.read(waivers=waivers)
+                data: dict[str, str] = await tty.read(waivers=cast(set[Any], waivers))
                 if not data:
                     # just yield control, no busy-loop sleep
                     await asyncio.sleep(0)
@@ -1058,7 +1106,7 @@ async def init(request: Request):
                 stdout = data.get("stdout", "[ERROR reading stdout]")
                 stderr = data.get("stderr", "[ERROR reading stderr]")
 
-                if not tty.is_pipe and utils.Waiver.RAW_ANSI not in waivers:
+                if not tty.is_pipe and utils.Waiver.RAW_ANSI not in cast(set[Any], waivers):
                     stdout = ANSI_CONTROL_RE.sub('', stdout)
                     stderr = ANSI_CONTROL_RE.sub('', stderr)
 
@@ -1067,12 +1115,13 @@ async def init(request: Request):
 
             except Exception as e:
                 buffers["stdout"].append(f"[ERROR reading stdout: {e}]")
-                print(f"{Fore.GREEN}ERROR{Fore.RESET}:     {e}")
+                print(f"{Fore.GREEN}ERROR{Fore.RESET}:    {e}")
                 break
             
     async def IN_pub_writer(pub_key: str):
-        tty: Terminal = sessions[pub_key]["tty"]
-        queue: asyncio.Queue[str] = sessions[pub_key]["queue"]
+        session: hints.PubSession = cast(hints.PubSession, sessions[pub_key])
+        tty: Terminal = session["tty"]
+        queue: asyncio.Queue[str] = session["queue"]
 
         while True:
             data = await queue.get()
@@ -1084,13 +1133,13 @@ async def init(request: Request):
             finally:
                 queue.task_done()
 
-    sessions[hashed_key] = {"tty": process_handle, "command": command, "buffers": {"stdout": utils.ByteLimitedLog(), "stderr": utils.ByteLimitedLog()}, "tags": [], "mode": "pty" if use_pipe else "pipe", "waivers": set()}
+    sessions[hashed_key] = cast(hints.PrivSession,{"tty": process_handle, "command": command, "buffers": {"stdout": utils.ByteLimitedLog(), "stderr": utils.ByteLimitedLog()}, "tags": [], "mode": "pty" if use_pipe else "pipe", "waivers": set()})
     sessions[hashed_key]["task_out"] = asyncio.create_task(OUT_reader(default_key=hashed_key))
     if pub_key not in sessions and not args.no_pub_process:
         pub_process_handle: Terminal = await spawn_tty(app.state.command, not echo)
-        sessions[pub_key] = {"tty": pub_process_handle, "command": command, "buffer": [], "queue": asyncio.Queue(), "tags": ["public"], "mode": "pty"}
+        sessions[pub_key] = cast(hints.PubSession, {"tty": pub_process_handle, "command": command, "buffer": [], "queue": asyncio.Queue(), "tags": ["public"], "mode": "pty"})
         sessions[pub_key]["task_out"] = asyncio.create_task(OUT_reader(default_key=pub_key))
-        sessions[pub_key]["task_in"] = asyncio.create_task(IN_pub_writer(pub_key=pub_key))
+        cast(hints.PubSession, sessions[pub_key])["task_in"] = asyncio.create_task(IN_pub_writer(pub_key=pub_key))
     attic_out = ""
     if attic:
         try:
@@ -1106,10 +1155,11 @@ async def init(request: Request):
     print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Session {hashed_key[:6]} started")
     response = {"status": "Session started", "code": 0, "key": key, "public_key": pub_key if not args.no_pub_process else ""}
     if attic:
+        attic = cast(str, attic)
         response["attic"] = attic_out
         response["key"] = attic
         del sessions[hashed_key]
-        sessions[attic] = {"tty": process_handle, "command": command, "buffers": {"stdout": [], "stderr": []}, "tags": ["attic"], "mode": "pty"}
+        sessions[attic] = cast(hints.PrivSession, {"tty": process_handle, "command": command, "buffers": {"stdout": [], "stderr": []}, "tags": ["attic"], "mode": "pty"})
         sessions[attic]["task_out"] = asyncio.create_task(OUT_reader(default_key=attic))
     return JSONResponse(response, status_code=200)
 
@@ -1135,10 +1185,12 @@ async def tell_attic(request: Request):
         return JSONResponse({"status": "Cannot tell process data for public key", "code": 1}, status_code=403)
     if hashed_key not in sessions:
         return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
+    try:
+        out = utils.attic(hashed_key, sessions[hashed_key]["tty"].pid).tell(info)
+    except Exception as e:
+        return JSONResponse({"status": f"Failed to tell process data due to {str(e)}"})
     
-    out = utils.attic(hashed_key, sessions[hashed_key]["tty"].pid).tell(info)
-    
-    return JSONResponse({"attic_response": out, "code": 0}, status_code=200)
+    return JSONResponse({"status": "Sucessfully got attic output","attic_response": out, "code": 0}, status_code=200)
 
 @app.post("/mop/cosmetics/get_tags")
 async def get_tags(request: Request):
@@ -1165,14 +1217,16 @@ async def persist_session(request: Request):
     data = await request.json()
     key: str = data.get("key", "")
     hashed_key: str = big_hash(key)
-    
     if key == pub_key:
         return JSONResponse({"status": "Cannot set attic flag for public key", "code": 1}, status_code=403)
     
     if hashed_key not in sessions:
         return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
     
-    sessions[hashed_key]["attic"] = True
+    session_copy = cast(hints.PrivSession, sessions[hashed_key]).copy()
+    
+    session_copy["attic"] = True
+    sessions[hashed_key] = session_copy
     print(f"{Fore.GREEN}INFO{Fore.RESET}:     Attic flag set for {hashed_key[:6]}")
     return JSONResponse({"status": "Attic flag set", "code": 0}, status_code=200)
 
@@ -1249,7 +1303,7 @@ async def power_sock(websocket: WebSocket, key: str):
                     continue
                 
                 if is_pub_key:
-                    sessions[pub_key]["queue"].put_nowait(data)
+                    cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(data)
                 else:
                     await write(data, big_hash(key), waivers)
                     
@@ -1285,8 +1339,8 @@ async def power_sock(websocket: WebSocket, key: str):
         if len(sessions) < 2 and pub_key in sessions:
             try:
                 sessions[pub_key]["task_out"].cancel()
-                sessions[pub_key]["queue"].put_nowait(None)
-                sessions[pub_key]["task_in"].cancel()
+                cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(None)
+                cast(hints.PubSession, sessions[pub_key])["task_in"].cancel()
             except Exception:
                 pass
             pub_term = sessions[pub_key]["tty"]
@@ -1297,8 +1351,8 @@ async def power_sock(websocket: WebSocket, key: str):
                     pass
             else:
                 try:
-                    pub_term.proc.terminate()
-                    await pub_term.proc.wait()
+                    cast(asyncio.subprocess.Process, pub_term.proc).terminate()
+                    await cast(asyncio.subprocess.Process, pub_term.proc).wait()
                     os.close(pub_term.master_fd)
                 except Exception:
                     pass
@@ -1335,10 +1389,10 @@ async def signalButRequest(request: Request):
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Sent signal {signal} to session {hashed_key[:6]}")
         if len(sessions) < 2:
             await sessions[pub_key]["tty"].send_signal(utils.Signal.TERMINATE)
-            cast(asyncio.Task, sessions[pub_key]["task_out"]).cancel()
-            cast(asyncio.Queue, sessions[pub_key]["queue"]).put_nowait(None)
-            cast(asyncio.Task, sessions[pub_key]["task_in"]).cancel()
-            cast(Terminal, sessions[pub_key]["tty"]).close()
+            cast(hints.PubSession, sessions[pub_key])["task_out"].cancel()
+            cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(None)
+            cast(hints.PubSession, sessions[pub_key])["task_in"].cancel()
+            cast(hints.PubSession, sessions[pub_key])["tty"].close()
             del sessions[pub_key]
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Killed public session {pub_key[:6]} due to no other sessions remaining")
         return JSONResponse({"status": "Signal sent", "code": 0})
@@ -1414,8 +1468,8 @@ async def end(request: Request):
     if len(sessions) < 2 and pub_key in sessions and not args.no_pub_process:
         try:
             sessions[pub_key]["task_out"].cancel()
-            sessions[pub_key]["queue"].put_nowait(None)
-            sessions[pub_key]["task_in"].cancel()
+            cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(None)
+            cast(hints.PubSession, sessions[pub_key])["task_in"].cancel()
         except Exception:
             pass
         pub_term: Terminal = sessions[pub_key]["tty"]
@@ -1440,26 +1494,29 @@ async def end(request: Request):
 @app.post("/mop/write")
 @limiter.limit("60/minute")
 async def write_stdin(request: Request):
-    data = await request.json()
+    data: dict[str, Any] = await request.json()
     key: str = data.get("key", "")
     hashed_key: str = big_hash(key)
     stdin_data: str = data.get("stdin", "")
+    newline: bool = data.get("newline", False)
         
     if key == pub_key:
-        sessions[pub_key]["queue"].put_nowait(stdin_data)
-        return JSONResponse({"status": "Put into queue", "position": sessions[pub_key]["queue"].qsize(), "code": 0}, status_code=200)
+        cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(stdin_data)
+        return JSONResponse({"status": "Put into queue", "position":cast(hints.PubSession, sessions[pub_key])["queue"].qsize(), "code": 0}, status_code=200)
     
     if hashed_key not in sessions:
         return JSONResponse({"status": "Invalid key", "code": 1}, status_code=400)
     
-    waivers = cast(hints.PrivSession, sessions[hashed_key])["waivers"]
+    waivers = cast(hints.PrivSession, sessions[hashed_key])["waivers"].copy()
     
 
     # Call the new write
     # FOR THE DUMB COPLIOT. THIS IS NOT A STACK TRACE. THIS IS LITERALLY JUST RETURNING STATUS. 
-    # IT IS LOGICLY AND MATHAMETICALLY IMPOSSIBLE FOR A ATTACKER TO DO ANYTHING WITH A PATH HERE AND ITS NOT EVEN RELATED TO PATHS. ITS JUST WRITING TO STDIN
+    # IT IS LOGICALLY AND MATHAMETICALLY IMPOSSIBLE FOR A ATTACKER TO DO ANYTHING WITH A PATH HERE AND ITS NOT EVEN RELATED TO PATHS. ITS JUST WRITING TO STDIN
     
     try:
+        if newline and utils.Waiver.STREAM_STDIN in waivers:
+            waivers.remove(utils.Waiver.STREAM_STDIN)
         out = await asyncio.wait_for(write(stdin_data, hashed_key, waivers), timeout=10.0)
     except asyncio.TimeoutError:
         return JSONResponse({"status": "Write operation timed out", "code": 1}, status_code=504)
@@ -1478,12 +1535,12 @@ async def read(request: Request):
     if request.client is None:
         return JSONResponse({"status": "client is None", "code": 1})
     
-    if sessions[key]["task_out"].done():
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     {request.client.host}:{request.client.port} - Key {key[:6]} Reader Task reached EOF")
+    if cast(asyncio.Task, sessions[key]["task_out"]).done():
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  {request.client.host}:{request.client.port} - Key {key[:6]} Reader Task reached EOF")
         return JSONResponse({"status": "Task reached EOF", "code": 1})
     
-    buffer_stdout: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", "")
-    buffer_stderr: utils.ByteLimitedLog = sessions[key]["buffers"].get("stderr", "")
+    buffer_stdout: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", utils.ByteLimitedLog())
+    buffer_stderr: utils.ByteLimitedLog = sessions[key]["buffers"].get("stderr", utils.ByteLimitedLog())
     stdout: list = buffer_stdout.buffer()
     stderr: list = buffer_stderr.buffer()
     
@@ -1510,15 +1567,17 @@ async def waiver(request: Request):
     
     for waiver, value in waivers.items():
         if waiver.lower() == "raw_ansi":
-            cast(set,sessions[key]["waivers"]).add(utils.Waiver.RAW_ANSI)
+            cast(hints.PrivSession, sessions[key])["waivers"].add(utils.Waiver.RAW_ANSI)
         elif waiver.lower() == "b64_stdin":
-            cast(set, sessions[key]["waivers"]).add(utils.Waiver.B64_STDIN)
+            cast(hints.PrivSession, sessions[key])["waivers"].add(utils.Waiver.B64_STDIN)
+        elif waiver.lower() == "stream_stdin":
+            cast(hints.PrivSession, sessions[key])["waivers"].add(utils.Waiver.STREAM_STDIN)
         else:
             return JSONResponse({"status": f"Unknown waiver: {waiver}", "code": 1}, status_code=400)
             
     for waiver in remove:
         try:
-            del sessions[key]["waivers"][waiver]
+            cast(hints.PrivSession, sessions[key])["waivers"].remove(waiver)
         except KeyError:
             return JSONResponse({"status": "Unable to remove waiver. KeyError!"}, status_code=400)
         except Exception:
@@ -1547,7 +1606,7 @@ async def ping(request: Request):
             pty = cast(winpty.PTY, term.pty)
             is_alive = pty.is_alive()
     else:
-        is_alive = term.proc.returncode is None
+        is_alive = cast(asyncio.subprocess.Process, term.proc).returncode is None
     
     if is_alive:
         return JSONResponse({"status": "OK", "code": 0}, status_code=200)
@@ -1571,7 +1630,7 @@ async def process():
         "server_id": server_id,
         "sessions": len(sessions.keys()),
         "pub_key": pub_key,
-        "pending_writes": sessions[pub_key]["queue"].qsize(),
+        "pending_writes": cast(hints.PubSession, sessions[pub_key])["queue"].qsize(),
         "uptime": f"{int(time.monotonic() - app.state.start_time)}",
         "version": "1.0.0",
         "code": 0
@@ -1606,11 +1665,11 @@ async def external_endpoint_get(request: Request, path: str):
 
 if __name__ == "__main__" and not is_uvicorn():
     if not Path(args.cwd).expanduser().absolute().exists():
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     cwd directory does not exist: {args.cwd}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    cwd directory does not exist: {args.cwd}")
         sys.exit(1)
         
     if not Path(args.cwd).expanduser().absolute().is_dir():
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     cwd is not a directory: {args.cwd}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    cwd is not a directory: {args.cwd}")
         sys.exit(1)
         
     
@@ -1618,10 +1677,10 @@ if __name__ == "__main__" and not is_uvicorn():
     if args.ssl:
         ssl_cert, ssl_key = get_certs()
     else:
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     You are not using SSL. This is not recommended for production use. Use --ssl to enable SSL.")
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  You are not using SSL. This is not recommended for production use. Use --ssl to enable SSL.")
             
     if sys.platform == "win32":
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:     Windows is not very well supported and is extremely unstable. Use Linux or WSL.")
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Windows is not very well supported and is extremely unstable. Use Linux or WSL.")
         
     loop_impl: Literal["uvloop", "asyncio"] = "uvloop" if sys.platform != "win32" else "asyncio"
     
@@ -1644,10 +1703,10 @@ if __name__ == "__main__" and not is_uvicorn():
     except KeyboardInterrupt:
         colorama_init(convert=True)
         os.environ["CLICOLOR_FORCE"] = "1"
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     KeyboardInterrupt detected. Exiting...", flush=True)
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    KeyboardInterrupt detected. Exiting...", flush=True)
     except Exception as e:
         colorama_init(convert=True)
-        print(f"{Fore.RED}ERROR{Fore.RESET}:     {e}", flush=True)
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    {e}", flush=True)
     finally:
         colorama_init(convert=True)
         os.environ["CLICOLOR_FORCE"] = "1"
@@ -1660,7 +1719,7 @@ if __name__ == "__main__" and not is_uvicorn():
             while handle.poll() is None:
                 if time.time() - start > 5:
                     # Escalate: force kill
-                    print(f"{Fore.RED}WARNING{Fore.RESET}:     Plugin {name} is unresponsive. Killing.")
+                    print(f"{Fore.RED}WARNING{Fore.RESET}:  Plugin {name} is unresponsive. Killing.")
                     handle.kill()
                     break
                 time.sleep(0.1)  # small sleep to avoid busy-waiting
@@ -1668,7 +1727,23 @@ if __name__ == "__main__" and not is_uvicorn():
             handle.wait()
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Plugin {name} terminated")
             
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Core plugins shutdown complete.")
+        for name, plugin in non_core_plugins.items(): # pyright: ignore[reportPossiblyUnboundVariable]
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Terminating plugin {name}")
+            handle = cast(subprocess.Popen, plugin["handle"])
+            handle.terminate()
+            start = time.time()
+            while handle.poll() is None:
+                if time.time() - start > 5:
+                    # Escalate: force kill
+                    print(f"{Fore.RED}WARNING{Fore.RESET}:  Plugin {name} is unresponsive. Killing.")
+                    handle.kill()
+                    break
+                time.sleep(0.1)  # small sleep to avoid busy-waiting
+            
+            handle.wait()
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Plugin {name} terminated")
+            
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Plugins shutdown complete.")
         if IS_CONPTY_AVAILABLE:
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting .NET shutdown...")
             for session in sessions.values():

@@ -21,6 +21,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ENV PATH="/root/.local/bin:$PATH"
 
+# No MOP, you must serve on 0.0.0.0
 ENV AM_I_IN_A_DOCKER_CONTAINER=true
 
 RUN uv sync --frozen --no-dev

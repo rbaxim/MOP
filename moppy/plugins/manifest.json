@@ -1,21 +1,23 @@
 {
     "attic": {
-        "location": "moppy/plugins/attic.py",
-        "acryonym": "Archived Terminal and Task Image Cache",
+        "location": "{MOPPY}/plugins/attic.py",
+        "acronym": "Archived Terminal and Task Image Cache",
         "dependencies": ["aiofiles", "colorama", "fastapi", "uvicorn", "cryptography", "psutil", "aiohttp", "brotlicffi", "brotli_asgi", "base91"],
         "runtime": "uvicorn plugins.attic:app --host 127.0.0.1 --port {port}",
         "supports": [],
         "core": true,
+        "enabled": true, 
         "port": 9000,
         "role": "Communication (with opted in subprocess) and session restoration and perservation"
     },
     "mat": {
-        "location": "moppy/plugins/mat.py",
-        "acryonym": "Modular Application Terminal",
+        "location": "plugins/mat.py",
+        "acronym": "Modular Application Terminal",
         "dependencies": ["uvicorn", "fastapi", "brotlicffi", "brotli_asgi", "certifi", "aiohttp"],
         "runtime": "uvicorn plugins.mat:app --host {host} --port {port}",
         "supports": ["ssl"],
         "core": true,
+        "enabled": true,
         "port": 8080,
         "role": "Serving the web ui"
     }

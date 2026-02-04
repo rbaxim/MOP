@@ -85,6 +85,6 @@ unix = [
 ]
 
 [tool.bandit]
-skips = ["B603", "B404", "B607", "B605", "B104", "B110"]
+skips = ["B603", "B404", "B607", "B605", "B104", "B110", "B101"]
 min_severity = "MEDIUM"
 min_confidence = "MEDIUM"
