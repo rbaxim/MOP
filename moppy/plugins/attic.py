@@ -83,7 +83,7 @@ logging.basicConfig(
 )
 
 with open("pepper", "rb") as f:
-    pepper: str = base91.decode(f.read().split("🌶️".encode("utf-8"))[0])
+    pepper: str = base91.decode(f.read().split("🌶️".encode("utf-8"))[0]).decode("utf-8")
     
 with open("auth/private_key.pem", "rb") as f:
     private_key = f.read().strip()

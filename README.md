@@ -198,7 +198,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 
 - Create custom endpoints at [./moppy/mop_custom_endpoints.json](./moppy/mop_custom_endpoints.json) with any programming language.
 
-- Add custom plugins at [./moppy/plugins](./moppy/plugins/)
+- Add custom plugins at [./moppy/plugins](./moppy/plugins/) with any programming language. As long as its a quick use script.
 
 ### 2 API Endpoints. Same Backend
 

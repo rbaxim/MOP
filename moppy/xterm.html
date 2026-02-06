@@ -399,6 +399,7 @@
     let reconnectTimeout = null;
     let echoEnabled = false;
     let isTuiActive = false;
+    let programDraws = false;
     
     // Add initialization step message
     function addInitStep(message, status = '') {
@@ -935,10 +936,12 @@
           } else if (e === '\x7f') {
               console.log("Detected: Backspace")
               sendInput('\x7f')
-              term.write('\b \b');
+              if ((!ProgramDraws || !isTuiActive)) {
+                term.write('\b \b');
+              }
           } else { 
             console.log("Detected: Raw")
-            if (!stringToHexUTF8(e).startsWith("1b")) {
+            if (!stringToHexUTF8(e).startsWith("1b") && (!ProgramDraws || !isTuiActive)) {
               term.write(e)
             }
             sendInput(e);
