@@ -27,9 +27,9 @@ authors = [
 
 dependencies = [
     # Core Server & Web
-    "fastapi==0.128.0",
+    "fastapi==0.128.3",
     "uvicorn==0.40.0",
-    "starlette==0.50.0",
+    "starlette==0.52.1",
     "pydantic==2.12.5",
     "slowapi==0.1.9",
 
@@ -59,7 +59,7 @@ dependencies = [
 dev = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
-    "types-aiofiles==24.1.0.20250822",
+    "types-aiofiles==25.1.0.20251011",
     "types-Deprecated==1.3.1.20260130",
     "bandit[sarif, toml]>=1.9.3",
 ]
@@ -74,7 +74,7 @@ unix = [
 dev = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
-    "types-aiofiles==24.1.0.20250822",
+    "types-aiofiles==25.1.0.20251011",
     "bandit[sarif, toml]>=1.9.3",
 ]
 windows = [
