@@ -168,10 +168,10 @@ async def get_mop_port(pid):
                 async with session.head(f"http://localhost:{port}/") as response:
                     if ("X-MOP") in response.headers:
                         logging.info(f"Found MOP Port: {port}")
-                        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found MOP Port: {port}.")
+                        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Found MOP Port: {port}. PID: {pid}")
                         return port 
-                    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Port {port} is not MOP.")
-                    logging.info(f"Port {port} is not MOP")
+                    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Port {port} is not MOP for {pid}")
+                    logging.info(f"Port {port} is not MOP for {pid}")
             except Exception:
                 pass
     return None    

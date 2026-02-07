@@ -1,3 +1,4 @@
+#!/usr/bin/env -S uv run python
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 rbaxim
 # Licensed under the Apache License, Version 2.0
@@ -22,7 +23,7 @@ import hashlib
 import json
 from pathlib import Path
 import importlib.util
-from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional, Union, Any
+from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Optional, Union, Any, Tuple
 import warnings
 import signal
 import shutil
@@ -33,11 +34,7 @@ def is_frozen():
     return getattr(sys, 'frozen', False) or bool(getattr(sys, '_MEIPASS', []))
 
 def is_uv_available() -> bool:
-    try:
-        subprocess.run(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        return True
-    except FileNotFoundError:
-        return False
+    return shutil.which("uv") is not None
 
 def get_certs():
     cert_dir = moppy_dir("certs")
@@ -71,13 +68,23 @@ def get_certs():
         print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  .pem or .key file missing in /moppy/certs")
     return ssl_cert, ssl_key
 
-def is_docker():
-    return os.environ.get("AM_I_IN_A_DOCKER_CONTAINER", "false").lower() == "true" or "moapy" in os.getcwd()
+def is_docker() -> bool:
+    if os.environ.get("AM_I_IN_A_DOCKER_CONTAINER", "").lower() == "true":
+        return True
 
-def moppy_path():
+    if Path("/.dockerenv").exists():
+        return True
+
+    try:
+        with open("/proc/1/cgroup", "rt", errors="ignore") as f:
+            return any("docker" in line or "containerd" in line for line in f)
+    except FileNotFoundError:
+        return False
+
+def moppy_path() -> Tuple[Literal[True], Path]:
     if Path("./moppy").exists():
         os.environ["MOPPY_PATH"] = str(Path("./moppy").absolute())
-        return True, Path("./moppy").absolute()
+        return True, Path("./moppy").resolve(strict=False)
     else:
         moppy_path = os.environ.get("MOPPY_PATH", None)
         if moppy_path is None:
@@ -85,7 +92,7 @@ def moppy_path():
             sys.exit(1)
         
         if Path(moppy_path).exists() and Path(moppy_path).is_dir():
-            return True, Path(moppy_path).absolute
+            return True, Path(moppy_path).resolve(strict=False)
         elif Path(moppy_path).exists() and Path(moppy_path).is_file():
             print(f"[ERROR] MOPPY_PATH environment variable points to a file: {moppy_path}")
             sys.exit(1)
@@ -96,7 +103,7 @@ def moppy_path():
 MOPPY: Path = cast(Path, moppy_path()[1])
 
 def moppy_dir(child: Path | str) -> Path:
-    return MOPPY / Path(child) 
+    return MOPPY / child
     
     
 uv = is_uv_available()
