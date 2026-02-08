@@ -3,7 +3,7 @@
         {
             "name": "hello_test",
             "method": "GET",
-            "path": "/mop/hello",
+            "path": "/tests/hello",
             "runtime": "python -u tests/running_tests/test.py"
         }
     ]

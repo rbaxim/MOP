@@ -159,6 +159,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 | ```-w```, ```--workers``` | Integer | 1 | No | Sets the amount of FastAPI workers to spawn |
 | ```--force-port``` | Flag | False | No | Disables interactive prompts when another process is bound to the port FastAPI wants to use and kills the process using the port without warning [See this warning](#the-dangers-of-stealing-a-port) |
 | ```--no-pub-process``` | Flag | False | No | Prevents automatic creation of a public session |
+| ```--legacy``` | Flag | False | No | Uses Uvicorn instead of Hypercorn for running FastAPI |
 
 ### Waivers
 

@@ -11,7 +11,7 @@
         "role": "Communication (with opted in subprocess) and session restoration and perservation"
     },
     "mat": {
-        "location": "plugins/mat.py",
+        "location": "{MOPPY}/plugins/mat.py",
         "acronym": "Modular Application Terminal",
         "dependencies": ["uvicorn", "fastapi", "brotlicffi", "brotli_asgi", "certifi", "aiohttp"],
         "runtime": "uvicorn plugins.mat:app --host {host} --port {port}",

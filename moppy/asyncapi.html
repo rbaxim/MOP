@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="https://unpkg.com/@asyncapi/react-component@latest/styles/default.min.css">
+    <title>MOP - AsyncAPI</title>
+    <link rel="icon" href="https://avatars.githubusercontent.com/u/16401334">
+  </head>
+  <body>
+    <div id="asyncapi"></div>
+
+    <script src="https://unpkg.com/@asyncapi/react-component@latest/browser/standalone/index.js"></script>
+    <script>
+      AsyncApiStandalone.render({
+        schema: {
+          url: './asyncapi.yaml', // Point this to your hosted yaml or json file
+          options: { method: "GET", mode: "cors" },
+        },
+        config: {
+          show: { sidebar: true }
+        },
+      }, document.getElementById('asyncapi'));
+    </script>
+  </body>
+</html>

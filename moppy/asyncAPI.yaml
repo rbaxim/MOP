@@ -1,0 +1,71 @@
+asyncapi: 3.1.0
+info:
+  title: MOP 
+  version: 1.0.0
+  description: >
+    stdio <-> HTTP(s)
+
+servers:
+  production:
+    host: '127.0.0.1:8000'
+    protocol: ws
+    description: Local production endpoint.
+
+channels:
+  powerSocket:
+    address: '/mop/power/sock/{key}'
+    summary: Raw PTY Stream
+    parameters:
+      key:
+        description: The unique session identifier.
+    messages:
+      RawInput:
+        $ref: '#/components/messages/RawInput'
+      BufferedOutput:
+        $ref: '#/components/messages/BufferedOutput'
+
+operations:
+  onClientInput:
+    action: receive
+    channel:
+      $ref: '#/channels/powerSocket'
+    summary: Injects raw string data into the process STDIN.
+    messages:
+      - $ref: '#/channels/powerSocket/messages/RawInput'
+
+  emitProcessOutput:
+    action: send
+    channel:
+      $ref: '#/channels/powerSocket'
+    summary: Streams captured STDOUT and STDERR buffers.
+    messages:
+      - $ref: '#/channels/powerSocket/messages/BufferedOutput'
+
+components:
+  messages:
+    RawInput:
+      name: RawInput
+      payload:
+        type: string
+        description: Any string to be written directly to the PTY stdin.
+        example: "echo 'Stream Test'\n"
+
+    BufferedOutput:
+      name: BufferedOutput
+      payload:
+        type: object
+        properties:
+          stdout:
+            type: array
+            items:
+              type: string
+            description: Captured stdout buffer since the last poll.
+          stderr:
+            type: array
+            items:
+              type: string
+            description: Captured stderr buffer since the last poll.
+        example:
+          stdout:
+            - "Stream Test"
+          stderr: []

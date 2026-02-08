@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from typing import cast
 import moppy.hints as hints
+from collections import defaultdict
 
 def moppy_path():
     if Path("./moppy").exists():
@@ -79,11 +80,14 @@ with open(moppy_dir("plugins/manifest.json"), "r") as f:
             sys.exit(1)
 
 class ByteLimitedLog:
-    def __init__(self, max_bytes=1048576, max_lines=9000):
-        self.lines = deque()
+    def __init__(self, max_bytes=1048576, max_lines=9000) -> None:
+        self.lines: deque[bytes] = deque()
         self.max_bytes = max_bytes
         self.current_bytes = 0
         self.max_lines = max_lines
+        self.revisions = 0
+        self._old_revisions = 0
+        self._decoded_list: list[str] = []
 
     def append(self, line_str: str):
         # We encode to utf-8 to get the actual byte weight
@@ -104,9 +108,10 @@ class ByteLimitedLog:
         while self.current_bytes > self.max_bytes or len(self.lines) > self.max_lines:
             removed_line = self.lines.popleft()
             self.current_bytes -= len(removed_line)
+        
+        self.revisions += 1
             
     def extend(self, data: bytes):
-        """Allows direct ingestion of raw bytes from the OS reader."""
         if not data:
             return
 
@@ -124,6 +129,8 @@ class ByteLimitedLog:
                len(self.lines) > self.max_lines):
             removed = self.lines.popleft()
             self.current_bytes -= len(removed)
+        
+        self.revisions += 1
             
     def pop_bytes(self, n: int) -> bytes:
         if n <= 0:
@@ -152,6 +159,8 @@ class ByteLimitedLog:
                 
                 self.current_bytes -= needed
                 bytes_got += needed
+        
+        self.revisions += 1
                 
         return b"".join(collected)
 
@@ -159,7 +168,12 @@ class ByteLimitedLog:
         return b"".join(self.lines)
     
     def buffer(self) -> list[str]:
-        return [utf8_buffer.decode('utf-8', errors='replace') for utf8_buffer in list(self.lines)]
+        if self.revisions != self._old_revisions: 
+            self._decoded_list = [utf8_buffer.decode('utf-8', errors='replace') for utf8_buffer in self.lines]
+            self._old_revisions = self.revisions
+            return self._decoded_list
+        else:
+            return self._decoded_list
 
 
 session: aiohttp.ClientSession | None = None  # global
@@ -324,8 +338,14 @@ class external_endpoint():
     def __repr__(self):
         return f"external_endpoint({self.path})"
     
-    async def call(self, arguments):
-        endpoint = await asyncio.create_subprocess_exec(*shlex.split(f"{self.runtime} {arguments}"), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd="./moppy")
+    async def call(self, arguments: dict):
+        safe_args = defaultdict(lambda: "", **arguments)
+        safe_args['runtime'] = self.runtime
+
+        cmd_str = "{runtime} {arguments}".format_map(safe_args)
+        cmd = shlex.split(cmd_str)
+        
+        endpoint = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=MOPPY)
         
         stdout, stderr = await endpoint.communicate()
         

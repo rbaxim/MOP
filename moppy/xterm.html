@@ -399,7 +399,7 @@
     let reconnectTimeout = null;
     let echoEnabled = false;
     let isTuiActive = false;
-    let programDraws = false;
+    let ProgramDraws = false;
     
     // Add initialization step message
     function addInitStep(message, status = '') {
@@ -512,8 +512,6 @@
         const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
         return new TextDecoder('utf-8').decode(bytes);
       } catch (e) {
-        // If it fails, htop might have sent a partial chunk. 
-        // Return the raw input so the terminal at least tries to render it.
         console.warn("Soft fail on decode, passing raw:", input);
         return input; 
       }
@@ -695,6 +693,9 @@
                   console.log("Detected ncurses");
                   isTuiActive = true;
                   term.write('\x1b[?1h'); 
+                  term.write('\x1b[?1006h');
+                  term.write('\x1b[?1000h');
+                  term.write('\x1b[?1015h');
               }
 
               // term.scrollToBottom();
@@ -705,6 +706,7 @@
         } else if (res.status === 404 || res.status === 400) {
           updateStatus('INVALID', 'status-terminated');
           shouldReconnect = false;
+          localStorage.removeItem("mop_key")
           showNotification('Invalid session key', 'error');
         }
       } catch (err) {

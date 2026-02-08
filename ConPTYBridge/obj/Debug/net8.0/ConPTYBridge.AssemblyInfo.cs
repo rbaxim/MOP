@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ConPTYBridge")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a377c6d0d22d1c377c752390685d31324e379f30")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b2855aeb34f17aac5ce8965422e5668f4c496141")]
 [assembly: System.Reflection.AssemblyProductAttribute("ConPTYBridge")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ConPTYBridge")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

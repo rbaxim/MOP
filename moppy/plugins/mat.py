@@ -14,11 +14,13 @@ import logging
 import brotlicffi as brotli # pyright: ignore[reportMissingImports]
 import gzip # pyright: ignore[reportMissingImports]
 from contextlib import asynccontextmanager # pyright: ignore[reportMissingImports]
+import asyncio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.timeout = aiohttp.ClientTimeout(total=10)
+    app.state.timeout = aiohttp.ClientTimeout(total=10, connect=5, sock_connect=5, sock_read=5)
     app.state.session = aiohttp.ClientSession(timeout=app.state.timeout)
+    app.state.ssl_context = make_ssl_context()
     yield
     await app.state.session.close()
 
@@ -64,7 +66,7 @@ app.state.mop_scheme = None
 
 
 async def fetch_backend(path: str, method="GET", body=None, headers=None):
-    ssl_context = make_ssl_context()
+    ssl_context = app.state.ssl_context
     urls = [
         ("https", f"https://localhost:8000/{path}"),
         ("https", f"https://127.0.0.1:8000/{path}"),
@@ -100,6 +102,8 @@ async def fetch_backend(path: str, method="GET", body=None, headers=None):
                     "body": content,
                     "headers": resp.headers,
                 }
+        except asyncio.CancelledError:
+            raise
         except (aiohttp.ClientConnectorError, ssl.SSLError) as e:
             last_error = e
             logging.warning(f"Failed {scheme.upper()} {url}: {e}")
@@ -131,6 +135,25 @@ def etag_response(func):
 
         return response
     return wrapper
+
+async def detect_encoding(encoding, body):
+    loop = asyncio.get_event_loop()
+    if encoding == "gzip":
+        try:
+            await loop.run_in_executor(None, gzip.decompress, body)
+            return "gzip"
+        except Exception:
+            logging.warning("Failed to decompress gzip response. Calling it fakes on mop")
+            return "identity"
+    elif encoding == "br":
+        try:
+            await loop.run_in_executor(None, brotli.decompress, body)
+            return "br"
+        except Exception:
+            logging.warning("Failed to decompress br response. Calling it fakes on mop")
+            return "identity"
+    else:
+        return "identity"
 
 @app.get("/favicon.ico")
 @etag_response
@@ -186,7 +209,14 @@ async def root(request: Request):
 
 @app.get("/{full_path:path}")
 async def route_to_backend(request: Request, full_path: str):
-    result = await fetch_backend(path=full_path, method="GET", headers=dict(request.headers))
+    try:
+        result = await asyncio.wait_for(fetch_backend(path=full_path, method="GET", headers=dict(request.headers)), timeout=5)
+    except asyncio.TimeoutError:
+        logging.warning("Backend fetch timed out")
+        return Response(status_code=504, content=b"Backend timeout")
+    except asyncio.CancelledError:
+        logging.info("Request cancelled")
+        raise
 
     # Preserve all backend headers except hop-by-hop
     headers = {
@@ -195,25 +225,10 @@ async def route_to_backend(request: Request, full_path: str):
         if k.lower() not in HOP_BY_HOP_HEADERS
     }
     
-    encoding = result["headers"].get("Content-Encoding", "identity")
+    encoding = await detect_encoding(result["headers"].get("Content-Encoding", "identity"), result["body"])
     
-    if encoding == "gzip":
-        try:
-            gzip.decompress(result["body"])
-            headers["Content-Encoding"] = "gzip"
-        except Exception:
-            logging.warning("Failed to decompress gzip response. Calling it fakes on mop")
-            headers["Content-Encoding"] = "identity"
-    elif encoding == "br":
-        try:
-            brotli.decompress(result["body"])
-            headers["Content-Encoding"] = "br"
-        except Exception:
-            logging.warning("Failed to decompress br response. Calling it fakes on mop")
-            headers["Content-Encoding"] = "identity"
-    else:
-        headers["Content-Encoding"] = "identity"
-            
+    headers["Content-Encoding"] = encoding
+    
     headers["Content-Length"] = str(len(result["body"]))      
     
     logging.info(f"Detected encoding: {encoding}")
@@ -231,13 +246,14 @@ async def route_to_backend_post(request: Request, full_path: str):
     logging.info(f"Received request for {request.method} {full_path}")
     
     body = await request.body()
-
-    result = await fetch_backend(
-        path=full_path,
-        method="POST",
-        body=body,
-        headers=dict(request.headers),
-    )
+    try:
+        result = await asyncio.wait_for(fetch_backend(path=full_path, method="POST", body=body, headers=dict(request.headers)), timeout=5)
+    except asyncio.TimeoutError:
+        logging.warning("Backend fetch timed out")
+        return Response(status_code=504, content=b"Backend timeout")
+    except asyncio.CancelledError:
+        logging.info("Request cancelled")
+        raise
     
     # Preserve all backend headers except hop-by-hop
     headers = {
@@ -246,24 +262,9 @@ async def route_to_backend_post(request: Request, full_path: str):
         if k.lower() not in HOP_BY_HOP_HEADERS
     }
     
-    encoding = result["headers"].get("Content-Encoding", "identity")
+    encoding = await detect_encoding(result["headers"].get("Content-Encoding", "identity"), result["body"])
     
-    if encoding == "gzip":
-        try:
-            gzip.decompress(result["body"])
-            headers["Content-Encoding"] = "gzip"
-        except Exception:
-            logging.warning("Failed to decompress gzip response. Calling it fakes on mop")
-            headers["Content-Encoding"] = "identity"
-    elif encoding == "br":
-        try:
-            brotli.decompress(result["body"])
-            headers["Content-Encoding"] = "br"
-        except Exception:
-            logging.warning("Failed to decompress br response. Calling it fakes on mop")
-            headers["Content-Encoding"] = "identity"
-    else:
-        headers["Content-Encoding"] = "identity"
+    headers["Content-Encoding"] = encoding
             
     headers["Content-Length"] = str(len(result["body"]))      
     
