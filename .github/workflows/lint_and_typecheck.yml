@@ -28,7 +28,6 @@ jobs:
           uv run ruff check .
 
   typecheck:
-    needs: lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -49,7 +48,6 @@ jobs:
           uv run mypy . --explicit-package-bases --ignore-missing-imports
 
   bandit:
-    needs: typecheck
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
