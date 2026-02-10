@@ -2,11 +2,11 @@
 Just for the type checker to shut up
 """
 from __future__ import annotations
-from typing import Protocol, Literal, TypedDict, Optional, Any, Union, TypeAlias, TYPE_CHECKING, cast
+from typing import Protocol, Literal, TypedDict, Optional, Any, Union, TypeAlias, TYPE_CHECKING, cast, Annotated
 import asyncio
 from enum import Enum, auto
 import subprocess
-from pydantic import BaseModel, Field, model_validator # type: ignore[attr-defined] # Mypy cli is stupid
+from pydantic import BaseModel, Field, model_validator, WithJsonSchema # type: ignore[attr-defined] # Mypy cli is stupid
 if TYPE_CHECKING:
     import moppy.utils as utils
     import mop
@@ -63,14 +63,24 @@ responses_type: TypeAlias = dict[int | str, dict[str, Any]]
 class models():
     class MopInit(BaseModel):
         echo: bool = Field(False, description="Decides whether MOP should allow the PTY to echo output")
-        attic:  Union[str, bool] = Field(False, description="Key for MOP to check inside of ATTIC.")
+        attic: Annotated[
+        Union[str, bool, None],
+        WithJsonSchema({
+            "type": "string",
+            "format": "key",
+            "example": "<Attic marked session key>"
+        })] = Field(None, description="Key for MOP to check inside of ATTIC.")
         use_pipe: bool = Field(False, description="Tells MOP to use Pipes instead of PTY")
         
         @model_validator(mode="before")
+        @classmethod
         def default_attic_false(cls, values):
-            if "attic" not in values:
+            # Capture cases where 'attic' is missing, None, or an empty string
+            val = values.get("attic")
+            if val is None or val == "" or "attic" not in values:
                 values["attic"] = False
             return values
+        
     class MopValidate(BaseModel):
         key: str = Field(..., description="Key to validate")
         
@@ -97,7 +107,7 @@ class models():
     
     class MopEnd(BaseModel):
         key: str = Field(..., description="Session key to end")
-        
+    
     class MopWrite(BaseModel):
         key: str = Field(..., description="Key to write")
         stdin: str = Field(..., description="Data to write to stdin")

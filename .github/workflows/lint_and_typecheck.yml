@@ -45,9 +45,9 @@ jobs:
           uv --version
           uv venv
           uv sync --group dev --group unix
-          uv run mypy . --explicit-package-bases --ignore-missing-imports
-
-  bandit:
+          uv run mypy . --explicit-package-bases --ignore-missing-imports   
+  
+  bandit-sarif:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -72,3 +72,111 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: bandit-report.sarif
+
+  bandit-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Run Bandit
+        continue-on-error: true
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv --version
+          uv venv
+          uv sync --group dev --group unix
+          uv run bandit -r mop.py ConPTYBridge moppy -c pyproject.toml
+
+
+  semgrep-sarif:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Run Semgrep
+        continue-on-error: true
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv --version
+          uv venv
+          uv sync --group dev --group unix
+
+          SEMGREP_SKIPS="python.lang.security.exec,python.lang.security.pickle-loads,python.lang.security.subprocess-shell,python.lang.security.subprocess-popen,python.lang.security.assert-used,python.lang.security.try-except-pass"
+
+          EXCLUDE_ARGS=()
+          for rule in ${SEMGREP_SKIPS//,/ }; do
+              EXCLUDE_ARGS+=("--exclude-rule" "$rule")
+          done
+
+          shopt -s extglob
+
+          SEMGREP_FILES_RULES=(./semgrep/!(install.sh))
+
+          shopt -u extglob
+
+
+          SEMGREP_RULES=()
+          for config in "${SEMGREP_FILES_RULES[@]}"; do
+              SEMGREP_RULES+=("--config" "$config")
+          done
+
+          uv run semgrep scan "${SEMGREP_RULES[@]}" "${EXCLUDE_ARGS[@]}" --jobs $(nproc) --sarif --output=semgrep-report.sarif
+
+      - name: Upload Semgrep SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep-report.sarif
+
+  semgrep-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Run Semgrep
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv --version
+          uv venv
+          uv sync --group dev --group unix
+
+          SEMGREP_SKIPS="python.lang.security.exec,python.lang.security.pickle-loads,python.lang.security.subprocess-shell,python.lang.security.subprocess-popen,python.lang.security.assert-used,python.lang.security.try-except-pass"
+
+          EXCLUDE_ARGS=()
+          for rule in ${SEMGREP_SKIPS//,/ }; do
+              EXCLUDE_ARGS+=("--exclude-rule" "$rule")
+          done
+
+          shopt -s extglob
+
+          SEMGREP_FILES_RULES=(./semgrep/!(install.sh))
+
+          shopt -u extglob
+
+
+          SEMGREP_RULES=()
+          for config in "${SEMGREP_FILES_RULES[@]}"; do
+              SEMGREP_RULES+=("--config" "$config")
+          done
+
+          uv run semgrep scan "${SEMGREP_RULES[@]}" --jobs $(nproc) "${EXCLUDE_ARGS[@]}" --error --debug

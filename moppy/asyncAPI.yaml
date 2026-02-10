@@ -7,7 +7,7 @@ info:
 
 servers:
   production:
-    host: '127.0.0.1:8000'
+    host: 'ws://127.0.0.1:8000'
     protocol: ws
     description: Local production endpoint.
 
@@ -18,6 +18,8 @@ channels:
     parameters:
       key:
         description: The unique session identifier.
+        schema:
+          type: string
     messages:
       RawInput:
         $ref: '#/components/messages/RawInput'
@@ -46,9 +48,13 @@ components:
     RawInput:
       name: RawInput
       payload:
-        type: string
+        type: object
         description: Any string to be written directly to the PTY stdin.
         example: "echo 'Stream Test'\n"
+        properties:
+          data:
+            type: string
+            enum: [utf8, base64]
 
     BufferedOutput:
       name: BufferedOutput

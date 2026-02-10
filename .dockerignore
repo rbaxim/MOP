@@ -8,6 +8,12 @@ moppy/logs/*.log
 **/.pytest_cache/
 pat.txt
 *.ignore
-gpush.sh
 .ruff_cache
 ConPTYBridge
+semgrep
+*.sh
+moppy/__init__.py
+.github
+*.sln
+*.md
+*.txt

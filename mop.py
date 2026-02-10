@@ -27,7 +27,6 @@ from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Opt
 import warnings
 import signal
 import shutil
-from collections.abc import Buffer
 import base64
 
 def is_frozen():
@@ -183,7 +182,8 @@ if not is_frozen() and __name__ == "__main__":
     if not moppy_dir("pickles/pickle.jpeg").exists():
         print("[CRITICAL] pickle.jpeg is missing. attempting to boot without it. May fail with a extremely high chance")
         time.sleep(2)
-        print(f"[CRITICAL] FAILED TO BOOT. STATUS CODE: {r"\xff\xfe\x00\x00C\x00\x00\x00O\x00\x00\x00M\x00\x00\x00P\x00\x00\x00L\x00\x00\x00E\x00\x00\x00T\x00\x00\x00E\x00\x00\x00 \x00\x00\x00F\x00\x00\x00A\x00\x00\x00I\x00\x00\x00L\x00\x00\x00U\x00\x00\x00R\x00\x00\x00E\x00\x00\x00'"}")
+        error_message = r"\xff\xfe\x00\x00C\x00\x00\x00O\x00\x00\x00M\x00\x00\x00P\x00\x00\x00L\x00\x00\x00E\x00\x00\x00T\x00\x00\x00E\x00\x00\x00\x00\x00\x00F\x00\x00\x00A\x00\x00\x00I\x00\x00\x00L\x00\x00\x00U\x00\x00\x00R\x00\x00\x00E\x00\x00\x00"
+        print(f"[CRITICAL] FAILED TO BOOT. STATUS CODE: {error_message}")
         time.sleep(2)
         print("ok jokes over. time to boot")
         
@@ -349,10 +349,7 @@ def steal_port(port):
         elif not is_killed: # Confusing logic, i know
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process.")
             
-pem_count = 0
-
-for i in moppy_dir("certs").glob("*.pem"):
-    pem_count += 1
+pem_count = len(list(moppy_dir("certs").glob("*.pem")))
 
 is_ssl_certs_exists = pem_count >= 1            
 
@@ -421,7 +418,7 @@ if __name__ == "__main__":
             cmd.append(str(Path(cert).absolute()))
             cmd.append("--ssl-keyfile")
             cmd.append(str(Path(key).absolute()))
-        core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd)
+        core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd) # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting core plugin:", name + f" at port {plugin['port']}" if plugin["port"] else "")
         core_plugin_handle: subprocess.Popen = cast(subprocess.Popen, core_plugins[name]["handle"])
         time.sleep(0.5)
@@ -453,7 +450,7 @@ if __name__ == "__main__":
             cmd.append(str(Path(cert).absolute()))
             cmd.append("--ssl-keyfile")
             cmd.append(str(Path(key).absolute()))
-        non_core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd)
+        non_core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd) # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting plugin:", name + f" at port {plugin['port']}" if plugin["port"] else "")
         none_core_plugin_handle = cast(subprocess.Popen, core_plugins[name]["handle"])
         time.sleep(0.5)
@@ -518,13 +515,14 @@ async def plugin_call(name, method="GET", content=None, path=""):
 if sys.platform == "win32":
     if sys.version_info < (3, 14):
         # Deprecation warning here for 3.14+
-        # TODO: Fix this before 3.16
+        # TODO: Fix this before 3.16 where they remove it
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     else:
         print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  You are using a python version that has deprecated the WindowsSelectorEventLoopPolicy. This may cause issues. Please use 3.13.2 or lower.")
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # pyright: ignore[reportAttributeAccessIssue] Stub doesnt have it yet
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # pyright: ignore[reportAttributeAccessIssue] Stub doesnt have it 
+        
 
 IS_CONPTY_AVAILABLE = False
 if sys.platform == "win32":
@@ -624,7 +622,7 @@ def custom_openapi():
     openapi_schema["paths"][ws_path] = {
         "get": {
             "summary": "MOP WebSocket",
-            "description": f"Bidirectional stream: Server sends stdout/stderr updates; Client sends stdin. **[AsyncAPI Portal](http{"s" if args.ssl else ""}://127.0.0.1:{args.port}/asyncDocs)**.",
+            "description": f"Bidirectional stream: Server sends stdout/stderr updates; Client sends stdin. **[AsyncAPI Portal](http{'s' if args.ssl else ''}://127.0.0.1:{args.port}/asyncDocs)**.",
             "tags": ["MOP Power Endpoints"],
             "parameters": [
                 {
@@ -1381,7 +1379,7 @@ async def persist_session(options: hints.models.MopSet_attic):
 @mop_router.post("/mop/power/stream/read", summary="SSE stdout", responses=hints.responses.MopPowerStreamRead(), tags=["MOP Power Endpoints"])
 async def sse_read(options: hints.models.MopPowerStreamRead, request: Request):
     """
-    SSE stdout stream.
+    SSE stdout stream
     """
     # 1. Auth Check (Crucial for Power endpoints)
     key: str = big_hash(options.key)
@@ -1484,7 +1482,15 @@ async def power_sock(websocket: WebSocket, key: str):
 @mop_router.post("/mop/signal", summary="Send signals", responses=hints.responses.MopSignal())
 async def signalButRequest(options: hints.models.MopSignal):
     """
-    Send signals 
+    Sends signals 
+    
+    Valid Signals:
+    
+    - INTERRUPT
+    
+    - TERMINATE
+    
+    - KILL
     """
     key: str = options.key
     signal = cast(Literal["INTERRUPT", "TERMINATE", "KILL"], options.signal.upper())
@@ -1525,6 +1531,9 @@ async def signalButRequest(options: hints.models.MopSignal):
     
 @mop_router.post("/mop/end", summary="End Session", responses=hints.responses.MopEnd())
 async def end(options: hints.models.MopEnd, request: Request):
+    """
+    Ends the session
+    """
     data = await request.json()
     key: str = options.key
     hashed_key: str = big_hash(key)
@@ -1613,7 +1622,7 @@ async def end(options: hints.models.MopEnd, request: Request):
 @ratelimit("60/minute", "Ratelimit of 60 RPM")
 async def write_stdin(options: hints.models.MopWrite):
     """
-    Write to STDIN
+    Writes to STDIN
     """
     key: str = options.key
     hashed_key: str = big_hash(key)
@@ -1648,7 +1657,7 @@ async def write_stdin(options: hints.models.MopWrite):
 @mop_router.post("/mop/read", summary="Read STDOUT/STDERR", responses=hints.responses.MopRead())
 async def read(options: hints.models.MopRead, request: Request):
     """
-    Read from STDOUT/STDERR
+    Reads from STDOUT/STDERR
     """
     key: str = big_hash(options.key)
     if key not in sessions:
@@ -1667,12 +1676,20 @@ async def read(options: hints.models.MopRead, request: Request):
     stderr: list = buffer_stderr.buffer()
     
     out: dict[str, list[str]] = {"stdout": stdout, "stderr": stderr}
-    return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(Buffer,json.dumps(out, sort_keys=True).encode("utf-8")), usedforsecurity=False).hexdigest()}, status_code=200) # nosec
+    return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(memoryview,json.dumps(out, sort_keys=True).encode("utf-8")), usedforsecurity=False).hexdigest()}, status_code=200) # nosec
 
 @mop_router.post("/mop/waiver", summary="Set/Remove Waivers", responses=hints.responses.MopWaiver())
 async def waiver(options: hints.models.MopWaiver):
     """
     Set waivers for extra explict features 
+    
+    Valid Waivers:
+    
+    | Waiver | Type | Description |
+    | --- | --- | --- |
+    | RAW_ANSI | Flag | Disables STDOUT/STDERR Non-SGR ansi filtering. Output in URL safe Base64 |
+    | B64_STDIN | Flag | Allows you to send binary data via URL safe Base64 |
+    | STREAM_STDIN | Flag | Removes the default OS-Specific line ending. Add ```{"newline": true}``` to your /mop/write calls to add a newline |
     """
     key: str = big_hash(options.key)
     remove: list[str] = options.remove
@@ -1706,6 +1723,9 @@ async def waiver(options: hints.models.MopWaiver):
 
 @mop_router.post("/mop/ping", summary="Ping Process", responses=hints.responses.MopPing())
 async def ping(options: hints.models.MopPing):
+    """
+    Pings your session and checks if it is alive
+    """
     key: str = big_hash(options.key)
     
     if key not in sessions:
@@ -1732,6 +1752,9 @@ async def ping(options: hints.models.MopPing):
 
 @mop_router.get("/mop/process", summary="Ping Server Process", responses=hints.responses.MopProcess())
 async def process():
+    """
+    Returns information on the server
+    """
     if pub_key not in sessions:
         return JSONResponse(
             {
@@ -1815,9 +1838,9 @@ mop_routes = [r for r in app.router.routes if getattr(r, "path", "").startswith(
 other_routes = [r for r in app.router.routes if not getattr(r, "path", "").startswith(mop_prefix)]
 app.router.routes = mop_routes + other_routes
 
-if __name__ == "__main__" and not is_uvicorn():
+if __name__ == "__main__":
     if sys.platform != "win32":
-        import uvloop
+        import uvloop # pyright: ignore[reportMissingImports]
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy()) # pyright: ignore[reportAttributeAccessIssue]
     
     if not Path(args.cwd).expanduser().absolute().exists():
@@ -1943,12 +1966,12 @@ if __name__ == "__main__" and not is_uvicorn():
                         pty.close() # pyright: ignore[reportAttributeAccessIssue, reportPossiblyUnboundVariable] # type: ignore[attr-defined]
                     except Exception:
                         pass # nosec
-                    print(f"{Fore.GREEN}INFO{Fore.RESET}:     .NET ConPTY session {pty.pid} closed.")
+                    print(f"{Fore.GREEN}INFO{Fore.RESET}:     .NET ConPTY session pid:{pty.pid} closed.")
         else:
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Shutting down terminal sessions...")
             for session in sessions.values():
                 term = cast(Terminal,session["tty"])
                 term.close()
-                print(f"{Fore.GREEN}INFO{Fore.RESET}:     Terminal session {term.pid} closed.")
+                print(f"{Fore.GREEN}INFO{Fore.RESET}:     Terminal session pid:{term.pid} closed.")
                 
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Server shutdown complete.")

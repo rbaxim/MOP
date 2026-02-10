@@ -17,3 +17,5 @@ gpush.sh
 scripts
 ConPTYBridge/bin
 ConPTYBridge/obj
+check.sh
+semgrep/install.sh

@@ -44,6 +44,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
       ```bash
       sudo apt update && sudo apt install -y python3 python3-venv python3-pip
       ```
+      
      </details>
 
    - macOS (Homebrew):
@@ -140,7 +141,7 @@ MOP stands for *Modular Protocol* and is designed to be as modular as possible.
 - Use the public session to reduce strain on the server.
 
 > [!TIP]
-> *Would you rather spawn 100 processes for 100 clients or spawn 1 process and every client connects to it*:               
+> *Would you rather spawn 100 processes for 100 clients or spawn 1 process and every client connects to it*:
 > The public process helps reduce server load by allowing multiple clients to share a single backend process instead of spawning one process per client.
 > To disable it. See the argument table below
 
