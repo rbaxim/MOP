@@ -44,7 +44,7 @@ dependencies = [
     "colorama==0.4.6",
     
     # Compression & Encryption
-    "cryptography==46.0.4",
+    "cryptography==46.0.5",
     "brotlicffi==1.2.0.0",
     "brotli==1.2.0",
     "brotli-asgi==1.6.0",
