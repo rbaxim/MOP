@@ -1,6 +1,6 @@
 [tool.mypy]
 ignore_missing_imports = true
-exclude = ['^\.venv.*']
+exclude = ['^\.venv.*'] # Shut up mypy. youre reading deps rn not code. you are meant to read code
 
 [[tool.mypy.overrides]]
 module = [
@@ -12,11 +12,12 @@ ignore_missing_imports = true
 
 [tool.uv]
 managed = true
+default-groups = []
 
 [project]
 name = "moppy"
 version = "1.1.0"
-description = "Modular Protocol server"
+description = "Modular Protocol Server"
 requires-python = ">=3.10, <3.14"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -26,7 +27,7 @@ authors = [
 
 dependencies = [
     # Core Server & Web
-    "fastapi==0.128.6",
+    "fastapi==0.129.0",
     "uvicorn==0.40.0",
     "hypercorn==0.18.0",
     "starlette==0.52.1",
@@ -44,7 +45,7 @@ dependencies = [
     "colorama==0.4.6",
     
     # Compression & Encryption
-    "cryptography==46.0.4",
+    "cryptography==46.0.5",
     "brotlicffi==1.2.0.0",
     "brotli==1.2.0",
     "brotli-asgi==1.6.0",
@@ -58,11 +59,18 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=1.14.0",
-    "ruff>=0.9.0",
+    "ruff>=0.15.1",
     "types-aiofiles==25.1.0.20251011",
     "types-Deprecated==1.3.1.20260130",
     "bandit[sarif, toml]>=1.9.3",
     "semgrep>=1.151.0"
+]
+dev-pypy = [
+    "mypy>=1.14.0",
+    "ruff>=0.9.0",
+    "types-aiofiles==25.1.0.20251011",
+    "types-Deprecated==1.3.1.20260130",
+    "bandit[sarif, toml]>=1.9.3", # PyPy can't build semgrep because of yaml
 ]
 windows = [
     "pythonnet==3.0.5",
@@ -74,10 +82,17 @@ unix = [
 [project.optional-dependencies]
 dev = [
     "mypy>=1.14.0",
-    "ruff>=0.9.0",
+    "ruff>=0.15.1",
     "types-aiofiles==25.1.0.20251011",
     "bandit[sarif, toml]>=1.9.3",
     "semgrep>=1.151.0"
+]
+dev-pypy = [
+    "mypy>=1.14.0",
+    "ruff>=0.9.0",
+    "types-aiofiles==25.1.0.20251011",
+    "types-Deprecated==1.3.1.20260130",
+    "bandit[sarif, toml]>=1.9.3", # PyPy can't build semgrep because of yaml
 ]
 windows = [
     "pythonnet==3.0.5",
@@ -87,6 +102,6 @@ unix = [
 ]
 
 [tool.bandit]
-skips = ["B603", "B404", "B607", "B605", "B104", "B110", "B101"]
+skips = ["B603", "B404", "B607", "B605", "B104", "B110", "B101"] # yes bandit. its called RCE for a reason. yes i know its bad, i literally state that its RCE.
 min_severity = "MEDIUM"
 min_confidence = "MEDIUM"

@@ -381,3 +381,5 @@ namespace Moppy.ConPTY
         }
     }
 }
+
+// thank you for reading my pain. visuallized as C#

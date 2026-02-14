@@ -7,9 +7,49 @@ import asyncio
 from enum import Enum, auto
 import subprocess
 from pydantic import BaseModel, Field, model_validator, WithJsonSchema # type: ignore[attr-defined] # Mypy cli is stupid
+import sys
 if TYPE_CHECKING:
     import moppy.utils as utils
-    import mop
+    if sys.platform == "win32":
+        try:
+            import ConPTYBridge.conpty as conpty # noqa: F401
+        except ImportError:
+            import winpty # pyright: ignore[reportMissingImports] # noqa: F401
+    else:
+        import fcntl # noqa: F401
+        import pty as unixpty # noqa: F401
+    
+class Terminal: # Mypy. its just typing
+    def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional[Union['winpty.PTY', "conpty.ConPTYInstance"]]=None, use_pipes: bool = False): ... # type: ignore[name-defined, valid-type]
+        
+    def _on_pty_readable(self): ...
+            
+    def _prime_pty(self): ...
+
+    async def read(self, n=1024, waivers: set[Any] = set()) -> dict[str, str]: ... # type: ignore
+        
+    async def send_signal(self, sig: utils.Signal) -> None: ... # pyright: ignore[reportAttributeAccessIssue]
+    
+    async def _wait_writable(self, fd, timeout=5.0): ...
+    
+    async def write(self, data: str, timeout=5.0) -> None: ...
+    
+    def close(self) -> None: ...
+    
+    @property
+    def is_pipe(self) -> bool: ... # type: ignore
+    
+    @property
+    def pid(self) -> int: ... # type: ignore
+    
+    @property
+    def proc(self) -> Union[asyncio.subprocess.Process, None]: ... # type: ignore
+    
+    @property
+    def master_fd(self) -> int: ... # type: ignore
+    
+    @property
+    def is_alive(self) -> bool: ... # type: ignore
 
 
 class Signal(Enum):
@@ -27,7 +67,7 @@ class buffers_dict(TypedDict):
     stderr: utils.ByteLimitedLog
 
 class PrivSession(TypedDict):
-    tty: mop.Terminal
+    tty: Terminal # pyright: ignore[reportAttributeAccessIssue]
     command: list[str]
     buffers: buffers_dict
     tags: list
@@ -37,7 +77,7 @@ class PrivSession(TypedDict):
     attic: Optional[bool]
 
 class PubSession(TypedDict):
-    tty: mop.Terminal
+    tty: Terminal # pyright: ignore[reportAttributeAccessIssue]
     command: list[str]
     buffers: buffers_dict
     tags: list
@@ -72,7 +112,7 @@ class models():
         })] = Field(None, description="Key for MOP to check inside of ATTIC.")
         use_pipe: bool = Field(False, description="Tells MOP to use Pipes instead of PTY")
         
-        @model_validator(mode="before")
+        @model_validator(mode="before") # pyright: ignore[reportCallIssue]
         @classmethod
         def default_attic_false(cls, values):
             # Capture cases where 'attic' is missing, None, or an empty string
@@ -182,7 +222,8 @@ class responses():
         response: responses_type = {
             **responses.response_template(500, example={"Invalid Client": {"status": "request.client is None", "comment": "Youre just as confused as i am. Blame Pylance", "code": 1}, "Attic Error": {"status": "Error retrieving attic", "code": 1, "error": "<error message>"}}, multiple_examples=True),
             **responses.ratelimit("2 requests per 1 minute"),
-            **responses.response_template(200, example={"status": "Session started", "code": 0, "key": "0504b284...", "public_key": "a0a0ba81..."})
+            **responses.response_template(200, example={"status": "Session started", "code": 0, "key": "0504b284...", "public_key": "a0a0ba81..."}),
+            **responses.response_template(400, example={"Pipe Not Supported": {"status": "Current terminal backend does not support pipes", "code": 1}, "PTY Not Supported": {"status": "Current terminal backend does not support pty. Call with use_pipe instead", "code": 1}}, multiple_examples=True)
         }
         return response
     
@@ -299,7 +340,7 @@ class responses():
     @staticmethod
     def MopProcess() -> responses_type:
         response: responses_type = {
-           **responses.response_template(428, example={"status": "No process is running.", "server_id": "894c0a23...", "command": "htop", "uptime": "6", "version": "1.0.0", "code": 0}),
+           **responses.response_template(428, example={"status": "No process is running.", "server_id": "894c0a23...", "command": "htop", "uptime": "6", "version": "1.1.1", "code": 0}),
            **responses.response_template(200, example={"server_id": "894c0a23...", "command": "htop", "uptime": "30", "sessions": 4, "pub_key": "445db74d...", "pending_writes": 2, "version": "1.0.0", "code": 0})
         }
         return response

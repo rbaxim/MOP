@@ -147,7 +147,7 @@ async def detect_encoding(encoding, body):
             return "identity"
     elif encoding == "br":
         try:
-            await loop.run_in_executor(None, brotli.decompress, body)
+            await loop.run_in_executor(None, brotli.decompress, body) # pyright: ignore[reportAttributeAccessIssue]
             return "br"
         except Exception:
             logging.warning("Failed to decompress br response. Calling it fakes on mop")

@@ -1,3 +1,6 @@
+"""
+i must. i MUST. I MUST CREATE CERTS
+"""
 from cryptography import x509 # pyright: ignore[reportMissingImports]
 from cryptography.x509.oid import NameOID # pyright: ignore[reportMissingImports]
 from cryptography.hazmat.primitives import hashes, serialization # pyright: ignore[reportMissingImports]

@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request  # pyright: ignore[reportMissingImports]
 from fastapi.responses import JSONResponse # pyright: ignore[reportMissingImports, reportMissingModuleSource]
 from pathlib import Path 
 import os
-import aiofiles # pyright: ignore[reportMissingModuleSource]
+import aiofiles # type: ignore
 import base64
 from cryptography.fernet import Fernet, InvalidToken # pyright: ignore[reportMissingImports]
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC # pyright: ignore[reportMissingImports]

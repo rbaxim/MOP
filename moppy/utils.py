@@ -2,9 +2,12 @@
 # Copyright 2026 rbaxim
 # Licensed under the Apache License, Version 2.0
 # See LICENSE file in the project root for details.
+"""
+give me all your runtime tools. i must contain them. trust >:)
+"""
 import aiohttp # pyright: ignore[reportMissingImports]
 import ssl
-import aiofiles # pyright: ignore[reportMissingModuleSource]
+import aiofiles # type: ignore
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import psutil # pyright: ignore[reportMissingModuleSource]
@@ -197,7 +200,7 @@ def make_ssl_context():
     return ctx
 
 async def get_auth() -> tuple[str, str]:
-    async with aiofiles.open("moppy/auth/private_key.pem", "r") as f:
+    async with aiofiles.open("moppy/auth/private_key.pem", "r") as f: # pyright: ignore[reportAttributeAccessIssue]
         private_key = await f.read()
 
     async with aiofiles.open("moppy/auth/certificate.pem", "r") as f:

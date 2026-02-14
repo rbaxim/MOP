@@ -2,6 +2,9 @@
 # Copyright 2026 rbaxim
 # Licensed under the Apache License, Version 2.0
 # See LICENSE file in the project root for details
+"""
+C# != Python? ehh i see no difference
+"""
 from __future__ import annotations
 
 import ctypes

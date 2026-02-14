@@ -1,3 +1,8 @@
+"""
+hello? did you forget about me. pls go to /mop/hello.
+trust its very cool
+"""
+
 import sys
 
 sys.stdout.write(
