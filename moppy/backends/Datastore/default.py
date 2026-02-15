@@ -2,7 +2,7 @@ from multiprocessing.managers import BaseManager
 from multiprocessing import Queue
 from dataclasses import dataclass
 from moppy.utils import steal_port, moppy_dir
-from typing import BinaryIO, cast, TypedDict
+from typing import BinaryIO, cast
 import base91 # pyright: ignore[reportMissingImports]
 import sys
 import os
@@ -25,7 +25,8 @@ class metadata:
     id: str = "default"
     version: str = "1.0.0"
 
-class Manager(BaseManager): pass
+class Manager(BaseManager): 
+    pass
 
 class Datastore:
     @staticmethod
