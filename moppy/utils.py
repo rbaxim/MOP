@@ -18,9 +18,12 @@ import sys
 from collections import deque
 import os
 from pathlib import Path
-from typing import cast
+from typing import cast, TYPE_CHECKING
 import moppy.hints as hints
 from collections import defaultdict
+if TYPE_CHECKING:
+    from psutil._common import addr # pyright: ignore[reportMissingModuleSource, reportMissingImports]  # noqa: E402
+from colorama import Fore # type: ignore
 
 def moppy_path():
     if Path("./moppy").exists():
@@ -45,6 +48,86 @@ MOPPY: Path = cast(Path, moppy_path()[1])
 
 def moppy_dir(child: Path | str) -> Path:
     return MOPPY / Path(child) 
+
+def steal_port(port, force_port=False):
+    def get_pid_by_port(port):
+        """
+        Finds the PID of the process listening on the specified port.
+        Returns the PID (int) or None if no process is found.
+        """
+        for conn in psutil.net_connections(kind='inet'):
+            laddr = cast("addr", conn.laddr)
+            if laddr.port == port and conn.status == psutil.CONN_LISTEN: # pyright: ignore[reportAttributeAccessIssue]
+                return conn.pid
+        return None
+
+    used_port = get_pid_by_port(port)
+    try:
+        ps_port = psutil.Process(used_port)
+        ps_PPID = psutil.Process(ps_port.ppid())
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        used_port = None
+        return
+    is_killed = False 
+    
+    if ps_port.pid == os.getpid():
+        return
+    
+    if port and not force_port:
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Port {port} is already in use by PID {used_port}.")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process name: {ps_port.name()}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process status: {ps_port.status()}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process PPID: {ps_PPID.pid}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process PPID name: {ps_PPID.name()}")
+        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process PPID status: {ps_PPID.status()}")
+        kill = input(f"{Fore.RED}ERROR{Fore.RESET}:    Do you want to kill the process? (y/n): ")
+        if kill.lower() == "y":
+            try:
+                ps_port.terminate()
+                print(f"{Fore.GREEN}INFO{Fore.RESET}:     Attempted to kill process. (SIGTERM)")
+                ps_port.wait(timeout=3)
+            except psutil.NoSuchProcess:
+                print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
+                sys.exit(1)
+            except psutil.TimeoutExpired:
+                print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Process did not terminate in time. Attempting to kill it with SIGKILL.")
+                try:
+                    ps_port.kill()
+                except psutil.NoSuchProcess:
+                    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process. (Process died after timeout)")
+                    is_killed = True 
+        is_not_killed = get_pid_by_port(port)
+        if is_not_killed:
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
+            sys.exit(1)
+        elif not is_killed: # Confusing logic, i know
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process.")
+    elif used_port and force_port:
+        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Port {port} is already in use by PID {used_port}. Forcing...")
+        try:
+            ps_port.terminate()
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Attempted to kill process. (SIGTERM)")
+            ps_port.wait(timeout=3)
+        except psutil.NoSuchProcess:
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
+            sys.exit(1)
+        except psutil.TimeoutExpired:
+            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Process did not terminate in time. Attempting to kill it with SIGKILL.")
+            try:
+                ps_port.kill()
+                ps_port.wait(timeout=3)
+            except psutil.NoSuchProcess:
+                print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process. (Process died after timeout)")
+                is_killed = True 
+            except psutil.TimeoutExpired:
+                print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
+                sys.exit(1)
+        is_not_killed = get_pid_by_port(port)
+        if is_not_killed:
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
+            sys.exit(1)
+        elif not is_killed: # Confusing logic, i know
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process.")
 
 def get_certs():
     cert_dir = moppy_dir("certs")

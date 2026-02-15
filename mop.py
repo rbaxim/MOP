@@ -23,7 +23,7 @@ import hashlib
 import json
 from pathlib import Path
 import importlib.util
-from typing import Literal, cast, BinaryIO, TextIO, Callable, TYPE_CHECKING, Any, Tuple
+from typing import Literal, cast, BinaryIO, TextIO, Callable,  Any, Tuple
 import warnings
 import shutil
 import base64
@@ -230,7 +230,7 @@ if not is_frozen() and __name__ == "__main__":
                 sys.exit(1)
     else:
         print("[INFO] All required packages are installed! (Most likely warm boot)")
-    print("[INFO] All MOP packages are installed! Checking for core plugin dependencies... (and you got color back. Horray!)")    
+    print("[INFO] All MOP packages are installed! Checking for core plugin dependencies... (and you got color back. Hooray!)")    
     
 # Required installations
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect # pyright: ignore[reportMissingImports]  # noqa: E402
@@ -255,8 +255,6 @@ from slowapi.errors import RateLimitExceeded  # pyright: ignore[reportMissingImp
 from colorama import Fore, Style, Back, init as colorama_init # pyright: ignore[reportMissingModuleSource, reportMissingImports]  # noqa: E402, F401
 import aiohttp # pyright: ignore[reportMissingImports] # noqa: E402
 import psutil # pyright: ignore[reportMissingModuleSource, reportMissingImports] # noqa: E402
-if TYPE_CHECKING:
-    from psutil._common import addr # pyright: ignore[reportMissingModuleSource, reportMissingImports]  # noqa: E402
 import moppy.utils as utils # pyright: ignore[reportMissingImports]  # noqa: E402
 import base91 # pyright: ignore[reportMissingImports] # noqa: E402
 import moppy.hints as hints # pyright: ignore[reportMissingImports]  # noqa: E402
@@ -279,85 +277,24 @@ parser.add_argument("--no-pub-process", default=False, action="store_true", help
 parser.add_argument("--legacy", default=False, action="store_true", help="Uses uvicorn instead of Hypercorn")
 args = parser.parse_args()
 
-def steal_port(port):
-    def get_pid_by_port(port):
-        """
-        Finds the PID of the process listening on the specified port.
-        Returns the PID (int) or None if no process is found.
-        """
-        for conn in psutil.net_connections(kind='inet'):
-            laddr = cast("addr", conn.laddr)
-            if laddr.port == port and conn.status == psutil.CONN_LISTEN: # pyright: ignore[reportAttributeAccessIssue]
-                return conn.pid
-        return None
-
-    used_port = get_pid_by_port(port)
-    try:
-        ps_port = psutil.Process(used_port)
-        ps_PPID = psutil.Process(ps_port.ppid())
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        used_port = None
-        return
-    is_killed = False 
+try:
+    f_pepper: BinaryIO 
+    with open(moppy_dir("pepper"), "rb") as f_pepper:
+        f_pepper = cast(BinaryIO, f_pepper)
+        pepper = bytes(base91.decode(f_pepper.read().split("🌶️".encode("utf-8"))[0]))
     
-    if ps_port.pid == os.getpid():
-        return
-    
-    if port and not args.force_port:
-        print(f"{Fore.RED}ERROR{Fore.RESET}:    Port {args.port} is already in use by PID {used_port}.")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process name: {ps_port.name()}")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process status: {ps_port.status()}")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process PPID: {ps_PPID.pid}")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process PPID name: {ps_PPID.name()}")
-        print(f"{Fore.RED}ERROR{Fore.RESET}:    Process PPID status: {ps_PPID.status()}")
-        kill = input(f"{Fore.RED}ERROR{Fore.RESET}:    Do you want to kill the process? (y/n): ")
-        if kill.lower() == "y":
-            try:
-                ps_port.terminate()
-                print(f"{Fore.GREEN}INFO{Fore.RESET}:     Attempted to kill process. (SIGTERM)")
-                ps_port.wait(timeout=3)
-            except psutil.NoSuchProcess:
-                print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
-                sys.exit(1)
-            except psutil.TimeoutExpired:
-                print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Process did not terminate in time. Attempting to kill it with SIGKILL.")
-                try:
-                    ps_port.kill()
-                except psutil.NoSuchProcess:
-                    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process. (Process died after timeout)")
-                    is_killed = True 
-        is_not_killed = get_pid_by_port(args.port)
-        if is_not_killed:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
-            sys.exit(1)
-        elif not is_killed: # Confusing logic, i know
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process.")
-    elif used_port and args.force_port:
-        print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Port {args.port} is already in use by PID {used_port}. Forcing...")
-        try:
-            ps_port.terminate()
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Attempted to kill process. (SIGTERM)")
-            ps_port.wait(timeout=3)
-        except psutil.NoSuchProcess:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
-            sys.exit(1)
-        except psutil.TimeoutExpired:
-            print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  Process did not terminate in time. Attempting to kill it with SIGKILL.")
-            try:
-                ps_port.kill()
-                ps_port.wait(timeout=3)
-            except psutil.NoSuchProcess:
-                print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process. (Process died after timeout)")
-                is_killed = True 
-            except psutil.TimeoutExpired:
-                print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
-                sys.exit(1)
-        is_not_killed = get_pid_by_port(args.port)
-        if is_not_killed:
-            print(f"{Fore.RED}ERROR{Fore.RESET}:    Failed to kill process.")
-            sys.exit(1)
-        elif not is_killed: # Confusing logic, i know
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Successfully killed process.")
+    if sys.platform != "win32":
+        os.chmod(moppy_dir("pepper"), 0o600)
+except FileNotFoundError:
+    # Salt isnt found/generated yet
+    pepper = secrets.token_bytes(32)
+    f_pepper2: BinaryIO
+    with open(moppy_dir("pepper"), "wb") as f_pepper2:
+        f_pepper2 = cast(BinaryIO, f_pepper2)
+        f_pepper2.write(base91.encode(pepper).encode("utf-8") + "🌶️".encode("utf-8"))
+        
+    if sys.platform != "win32":
+        os.chmod(moppy_dir("pepper"), 0o600)
             
 pem_count = len(list(moppy_dir("certs").glob("*.pem")))
 
@@ -392,7 +329,7 @@ if __name__ == "__main__":
     f: TextIO # pyright: ignore[reportRedeclaration]
     with open(moppy_dir("plugins/manifest.json"), "r") as f:
         try:
-            manifest: hints.Plugin_Manifest = json.load(f)
+           manifest: hints.Plugin_Manifest = json.load(f)
         except json.JSONDecodeError:
             print(f"{Fore.RED}ERROR{Fore.RESET}:    Invalid plugin manifest!")
             sys.exit(1)
@@ -433,7 +370,7 @@ if __name__ == "__main__":
         runtime = runtime.format(location=plugin_location, port=plugin["port"] if plugin["port"] else "", host=args.host)
         mop_cwd = MOPPY
         
-        steal_port(plugin["port"])
+        utils.steal_port(plugin["port"], args.force_port)
         
         cmd = shlex.split(runtime)
         if "ssl" in plugin["supports"] and args.ssl:
@@ -465,7 +402,7 @@ if __name__ == "__main__":
         runtime = runtime.format(location=plugin["location"], port=plugin["port"] if plugin["port"] else "", host=args.host)
         mop_cwd = MOPPY
         
-        steal_port(plugin["port"])
+        utils.steal_port(plugin["port"], args.force_port)
         
         cmd = shlex.split(runtime)
         if "ssl" in plugin["supports"] and args.ssl:
@@ -621,19 +558,26 @@ app: FastAPI = create_app(command)
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
-    
+
     openapi_schema = get_openapi(
         title=app.title,
         version=app.version,
         description=app.description,
         routes=app.routes,
     )
+
     ws_path = "/mop/power/sock/{key}"
-    
+
     openapi_schema["paths"][ws_path] = {
         "get": {
-            "summary": "MOP WebSocket",
-            "description": f"Bidirectional stream: Server sends stdout/stderr updates; Client sends stdin. **[AsyncAPI Portal](http{'s' if args.ssl else ''}://127.0.0.1:{args.port}/asyncDocs)**.",
+            "summary": "MOP WebSocket Terminal Stream",
+            "description": (
+                "WebSocket endpoint for interactive terminal sessions.\n\n"
+                "• **Server → Client:** JSON messages containing `stdout` and `stderr` arrays.\n"
+                "• **Client → Server:** JSON messages containing `stdin` string input.\n\n"
+                "Connection upgrades via HTTP `101 Switching Protocols`.\n\n"
+                f"AsyncAPI Portal: http{'s' if args.ssl else ''}://127.0.0.1:{args.port}/asyncDocs"
+            ),
             "tags": ["MOP Power Endpoints"],
             "parameters": [
                 {
@@ -641,46 +585,75 @@ def custom_openapi():
                     "in": "path",
                     "required": True,
                     "schema": {"type": "string"},
-                    "description": "Session key"
+                    "description": "Alias for session key"
                 }
             ],
             "responses": {
                 "101": {
-                    "description": "Switching Protocols",
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/TerminalOutput"}
-                        }
-                    },
+                    "description": "Switching Protocols – WebSocket connection established",
                     "headers": {
                         "Upgrade": {
+                            "description": "Protocol upgrade header",
                             "schema": {
                                 "type": "string",
                                 "example": "websocket"
                             }
                         },
                         "Connection": {
+                            "description": "Connection upgrade indicator",
                             "schema": {
                                 "type": "string",
                                 "example": "Upgrade"
                             }
+                        },
+                        "Sec-WebSocket-Accept": {
+                            "description": "Server handshake response key",
+                            "schema": {
+                                "type": "string"
+                            }
                         }
                     }
+                },
+                "400": {
+                    "description": "Invalid request"
+                },
+                "403": {
+                    "description": "Forbidden"
                 }
             }
         }
     }
 
-    # 3. Inject the Data Model for the Terminal Output
-    if "schemas" not in openapi_schema["components"]:
-        openapi_schema["components"]["schemas"] = {}
-        
+    # Ensure components exist
+    openapi_schema.setdefault("components", {}).setdefault("schemas", {})
+
+    # Server -> Client payload
     openapi_schema["components"]["schemas"]["TerminalOutput"] = {
         "type": "object",
         "properties": {
-            "stdout": {"type": "array", "items": {"type": "string"}},
-            "stderr": {"type": "array", "items": {"type": "string"}}
+            "stdout": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "New stdout lines"
+            },
+            "stderr": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "New stderr lines"
+            }
         }
+    }
+
+    # Client -> Server payload
+    openapi_schema["components"]["schemas"]["TerminalInput"] = {
+        "type": "object",
+        "properties": {
+            "stdin": {
+                "type": "string",
+                "description": "Raw input to send to terminal stdin"
+            }
+        },
+        "required": ["stdin"]
     }
 
     app.openapi_schema = openapi_schema
@@ -691,26 +664,7 @@ mop_router = APIRouter(tags=["MOP endpoints"])
 app.openapi = custom_openapi # type: ignore[method-assign]
 
 app.state.start_time = time.monotonic()
-app.state.pepper =  b""
-
-try:
-    f_pepper: BinaryIO 
-    with open(moppy_dir("pepper"), "rb") as f_pepper:
-        f_pepper = cast(BinaryIO, f_pepper)
-        app.state.pepper = bytes(base91.decode(f_pepper.read().split("🌶️".encode("utf-8"))[0]))
-    
-    if sys.platform != "win32":
-        os.chmod(moppy_dir("pepper"), 0o600)
-except FileNotFoundError:
-    # Salt isnt found/generated yet
-    app.state.pepper = secrets.token_bytes(32)
-    f_pepper2: BinaryIO
-    with open(moppy_dir("pepper"), "wb") as f_pepper2:
-        f_pepper2 = cast(BinaryIO, f_pepper2)
-        f_pepper2.write(base91.encode(app.state.pepper).encode("utf-8") + "🌶️".encode("utf-8"))
-        
-    if sys.platform != "win32":
-        os.chmod(moppy_dir("pepper"), 0o600)
+app.state.pepper = pepper
         
 def big_hash(s) -> str:
     if s is None: 
@@ -821,15 +775,6 @@ async def write(data: str, key: str, waivers: set[str | Any]):
         return {"status": f"Unexpected error: {e}", "code": 1}, 500
 
     return {"status": "Wrote data", "code": 0}, 200
-
-async def read_stdout(key: str):
-    # Just for websocket's sake
-    data: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", utils.ByteLimitedLog())
-    new_data: list = data.buffer()
-    if len(new_data) == 0:
-        return ""
-    
-    return new_data[len(new_data) - 1]
 
 @mop_router.post("/mop/init", summary="Initialize Session", responses=hints.responses.MopInit())
 @ratelimit("2/minute", "Ratelimit of 2 RPM")
@@ -949,6 +894,33 @@ async def init(options: hints.models.MopInit, request: Request):
         sessions[attic]["task_out"] = asyncio.create_task(OUT_reader(default_key=attic))
     return JSONResponse(response, status_code=200)
 
+@mop_router.post("/mop/alias", summary="Temporary Key", responses=hints.responses.MopAlias())
+@ratelimit("1/minute", "Ratelimit of 1 RPM")
+async def temporary_keys(options: hints.models.MopAlias):
+    """
+    Generates a temporary alias for your key.
+
+    This alias when connected to a endpoint that requires this alias
+    
+    The alias for the public session is always "Public".
+    
+    Endpoints that currently use this alias:
+    
+     - /mop/power/sock/{key_alias}
+    """
+    
+    if options.key == pub_key:
+        return JSONResponse({"status": "Created Alias", "alias": "Public", "Comment": "Save time by just using the alias 'Public' for the public session", "code": 0}, status_code=200)
+    
+    if big_hash(options.key) not in sessions:
+        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
+
+    alias = secrets.token_hex(32)
+    
+    sessions[alias] = big_hash(options.key) # type: ignore
+    
+    return JSONResponse({"status": "Created Alias", "alias": alias, "code": 0}, status_code=200)
+
 @mop_router.post("/mop/validate", summary="Validate key", responses=hints.responses.MopValidate())
 @ratelimit("10/minute", "Ratelimit of 10 RPM")
 async def validate(options: hints.models.MopValidate):
@@ -1027,15 +999,40 @@ async def persist_session(options: hints.models.MopSet_attic):
 
 @mop_router.post("/mop/power/stream/read", summary="SSE stdout", responses=hints.responses.MopPowerStreamRead(), tags=["MOP Power Endpoints"])
 async def sse_read(options: hints.models.MopPowerStreamRead, request: Request):
+    global last_stdout, last_stderr
     """
     SSE stdout stream
     """
     # 1. Auth Check (Crucial for Power endpoints)
+    
+    last_stdout = 0 # type: ignore
+    last_stderr = 0 # type: ignore
+    
+    async def read_stdout(key: str):
+        global last_stdout
+        data: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", utils.ByteLimitedLog())
+        new_data: list = data.buffer()
+        if len(new_data) == 0 or last_stdout == len(new_data): # type: ignore
+            return ""
+        last_stdout = len(new_data) # type: ignore
+        return new_data[len(new_data) - 1]
+    
+    async def read_stderr(key: str):
+        global last_stderr
+        data: utils.ByteLimitedLog = sessions[key]["buffers"].get("stderr", utils.ByteLimitedLog())
+        new_data: list = data.buffer()
+        if len(new_data) == 0 or last_stderr == len(new_data): # type: ignore
+            return ""
+        last_stderr = len(new_data) # type: ignore
+        return new_data[len(new_data) - 1]
+
+
     key: str = big_hash(options.key)
     if key not in sessions:
         return JSONResponse({"status": "Invalid Key"}, status_code=404)
 
     async def event_generator():
+        heartbeat_timer = time.monotonic()
         while True:
             # 2. Check for disconnect (Stop wasting CPU if they leave)
             if await request.is_disconnected():
@@ -1044,11 +1041,18 @@ async def sse_read(options: hints.models.MopPowerStreamRead, request: Request):
 
             # 3. Pull from your existing stdout buffer
             # This is where your PTY data lives
-            new_data = await read_stdout(key)
+            stdout = await read_stdout(key)
+            stderr = await read_stderr(key)
 
-            if new_data:
+            if not stdout == "" or not stderr == "":
                 # SSE Format: "data: <content>\n\n"
-                yield f"data: {new_data}\n\n"
+                response = json.dumps({"stdout": stdout, "stderr": stderr})
+                yield f"data: {response}\n\n"
+            else:
+                if time.monotonic() - heartbeat_timer > 14.5: # About 15 seconds
+                    heartbeat_timer = time.monotonic()
+                    yield ": heartbeat\n\n"
+                    continue
 
             # 4. Small sleep to prevent CPU spinning
             await asyncio.sleep(0.1)
@@ -1057,19 +1061,24 @@ async def sse_read(options: hints.models.MopPowerStreamRead, request: Request):
 
 @app.websocket("/mop/power/sock/{key}")
 async def power_sock(websocket: WebSocket, key: str):
-    hashed_key = big_hash(key)
-    if hashed_key not in sessions:
-        await websocket.close(code=1008)
+    alias = key
+    if alias not in sessions and not alias == "Public":
+        await websocket.close(code=1008, reason="Invalid Alias")
         return
     
     is_pub_key = False
     
-    if key == pub_key:
+    if alias == "Public":
         is_pub_key = True
+        hashed_key = pub_key
+    else:
+        hashed_key = sessions[alias]["key"] # type: ignore
+        del sessions[alias]
+    
     
     await websocket.accept()
     if websocket.client is None:
-        await websocket.close(code=1011)
+        await websocket.close(code=1011, reason="Websocket.client is None. P.S. Contact the server owner about this issue")
         return
     client = f"{websocket.client.host}:{websocket.client.port}"
     print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Session {hashed_key[:6]} connected")
@@ -1092,7 +1101,10 @@ async def power_sock(websocket: WebSocket, key: str):
                         "stdout": new_stdout, 
                         "stderr": new_stderr
                     }
-                    await websocket.send_text(json.dumps(payload))
+                    try:
+                        await websocket.send_text(json.dumps(payload))
+                    except RuntimeError: # Websocket is closed. Ignore
+                        pass
                     
                     sent_stdout_count = len(stdout_full)
                     sent_stderr_count = len(stderr_full)
@@ -1100,27 +1112,39 @@ async def power_sock(websocket: WebSocket, key: str):
                 await asyncio.sleep(0.1)
                 
         async def receive_from_client() -> None:
-            last_msg_time = time.time()
-            msg_count = 0
+            last_time = time.monotonic()
             while True:
-                data = await websocket.receive_text()
+                received_data = await websocket.receive_text()
+                
+                try:
+                    stdin: dict = json.loads(received_data)
+                except json.JSONDecodeError:
+                    await websocket.close(code=1008)
+                    print(f"{Fore.GREEN}ERROR{Fore.RESET}:    Client {client} didn't send JSON")
+                    return
+                
+                data = stdin["stdin"]
+                        
                 
                 # Rate limiting / Backpressure
-                current_time = time.time()
-                if current_time - last_msg_time < 1.0:
-                    msg_count += 1
-                else:
-                    msg_count = 0
-                    last_msg_time = current_time
-                    
-                if msg_count > 50:
-                    await websocket.close(code=1008)
+                now = time.monotonic()
+                count = 0.0
+                count = max(0.0, count - (now - last_time) * 50)
+                last_time = now
+                count += 1
+
+                if count > 50:
+                    await websocket.close(code=1008, reason="Ratelimit exceeded")
+                    print(f"{Fore.GREEN}ERROR{Fore.RESET}:    Ratelimit exceeded for {client}")
                 
                 if is_pub_key:
                     # Use the global pub_key session queue
                     cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(data)
                 else:
-                    waivers = cast(hints.PrivSession, sessions[hashed_key])["waivers"]
+                    newline = stdin.get("newline", False)
+                    waivers = cast(hints.PrivSession, sessions[hashed_key])["waivers"].copy()
+                    if newline and utils.Waiver.STREAM_STDIN in waivers:
+                        waivers.remove(utils.Waiver.STREAM_STDIN)
                     await write(data, hashed_key, waivers)
 
         await asyncio.gather(send_to_client(), receive_from_client())
@@ -1502,7 +1526,7 @@ if __name__ == "__main__":
         
     loop_impl: Literal["uvloop", "asyncio"] = "uvloop" if sys.platform != "win32" else "asyncio"
     
-    steal_port(args.port)
+    utils.steal_port(args.port, args.force_port)
     
     
     if use_legacy and not HAS_UVICORN:

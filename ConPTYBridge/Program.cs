@@ -78,6 +78,9 @@ namespace Moppy.ConPTY
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern bool PeekNamedPipe(SafeFileHandle hNamedPipe, IntPtr lpBuffer, uint nBufferSize, IntPtr lpBytesRead, out uint lpTotalBytesAvail, IntPtr lpBytesLeftThisMessage);
 
+        // [DllImport("kernel32.dll", SetLastError = true)]
+        // public static extern IntPtr CreateNamedPipe(string lpName, uint dwOpenMode, uint dwPipeMode, uint nMaxInstances, uint nOutBufferSize, uint nInBufferSize, uint nDefaultTimeOut, IntPtr lpSecurityAttributes);
+
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
 

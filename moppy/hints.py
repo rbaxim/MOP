@@ -121,6 +121,9 @@ class models():
                 values["attic"] = False
             return values
         
+    class MopAlias(BaseModel):
+        key: str = Field(..., description="Key to alias")
+        
     class MopValidate(BaseModel):
         key: str = Field(..., description="Key to validate")
         
@@ -228,6 +231,15 @@ class responses():
         return response
     
     @staticmethod
+    def MopAlias() -> responses_type:
+        response: responses_type = {
+            **responses.ratelimit("1 requests per 1 minute"),
+            **responses.response_template(404, example={"status": "Invalid key", "code": 1}),
+            **responses.response_template(200, example={"Private Session": {"status": "Created Alias", "alias": "3b041453...", "code": 0}, "Public Session": {"status": "Created Alias", "alias": "Public", "Comment": "Save time by just using the alias 'Public' for the public session", "code": 0}}, multiple_examples=True),
+        }
+        return response
+    
+    @staticmethod
     def MopValidate() -> responses_type:
         response: responses_type = {
             **responses.response_template(404, example={"status": "Invalid key", "code": 1}),
@@ -274,7 +286,7 @@ class responses():
     @staticmethod
     def MopPowerStreamRead() -> responses_type:
         response: responses_type = {
-            **responses.response_template(200, "text/event-stream", "data: hello there\n\ndata: ooh new data\n\ndata: look haha its stdout out but a real stream\n\n"),
+            **responses.response_template(200, "text/event-stream", 'data: {"stdout": "hello there", "stderr": ""}\n\ndata: {"stdout": "ooh new data", "stderr": "uh oh. error :("}\n\n: heartbeat\n\n{"stdout": "hahaha heart beat", "stderr": ""}'),
             **responses.response_template(404, example={"status": "Invalid key", "code": 1})
         }
         return response

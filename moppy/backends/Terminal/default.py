@@ -12,7 +12,6 @@ import logging
 from pathlib import Path
 import subprocess
 import shutil
-from dataclasses import dataclass
 
 moppy_dir = utils.moppy_dir # copy paste good
 
@@ -59,7 +58,7 @@ if sys.platform == "win32":
         if not is_pypy():
             import ConPTYBridge.conpty as conpty
             IS_CONPTY_AVAILABLE = True
-            conpty_dll_path = moppy_dir("ConPTYBridge/bin/Release/net8.0/ConPTYBridge.dll")
+            conpty_dll_path = root / "ConPTYBridge/bin/Release/net8.0/ConPTYBridge.dll"
     except ImportError:
         logging.warning("[WARNING]  You are not using the C# ConPTY wrapper for python. It is heavily recommended you install/build it for extra features")
         import winpty # pyright: ignore[reportMissingImports]
@@ -78,12 +77,11 @@ env.update({
     "LANGUAGE": "C.UTF-8"
 })
 
-@dataclass
 class metadata:
-    id = "default"
-    version = "1.0.0"
-    os_supported = ["unix", "win32"]
-    method_supported = ["pipe", "pty"]
+    id: str = "default"
+    version: str = "1.0.0"
+    os_supported: list[str] = ["unix", "win32"]
+    method_supported: list[str] = ["pipe", "pty"]
 
 class Terminal:
     def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional[Union['winpty.PTY', "conpty.ConPTYInstance"]]=None, use_pipes: bool = False): # type: ignore[name-defined, valid-type]

@@ -1,77 +1,172 @@
 asyncapi: 3.1.0
+
 info:
-  title: MOP 
+  title: MOP WebSocket Terminal API
   version: 1.0.0
   description: >
-    stdio <-> HTTP(s)
+    Interactive PTY stream over WebSocket.
+
+    Flow:
+      1. Obtain alias via POST /mop/alias
+      2. Connect to /mop/power/sock/{alias}
+
+    Special alias:
+      "Public" → shared public session
+
+    When the websocket is connected:
+      The alias instantly becomes invalid and must be regenerated if you need another one.
+      Only exception is for the Public alias
 
 servers:
-  production:
-    host: 'ws://127.0.0.1:8000'
+  development:
+    host: 127.0.0.1:8000
     protocol: ws
-    description: Local production endpoint.
+    description: Insecure WebSocket (development only)
+
+  production:
+    host: example.com
+    protocol: wss
+    description: Secure WebSocket (recommended)
 
 channels:
   powerSocket:
-    address: '/mop/power/sock/{key}'
-    summary: Raw PTY Stream
-    parameters:
-      key:
-        description: The unique session identifier.
-        schema:
-          type: string
+    address: /mop/power/sock/{alias}
+    summary: Interactive terminal WebSocket
+    description: >
+      Connect using alias obtained from POST /mop/alias.
+      Invalid alias results in close code 1008.
+
     messages:
-      RawInput:
-        $ref: '#/components/messages/RawInput'
-      BufferedOutput:
-        $ref: '#/components/messages/BufferedOutput'
+      TerminalInput:
+        $ref: '#/components/messages/TerminalInput'
+      TerminalOutput:
+        $ref: '#/components/messages/TerminalOutput'
 
 operations:
-  onClientInput:
+
+  receiveInput:
     action: receive
     channel:
       $ref: '#/channels/powerSocket'
-    summary: Injects raw string data into the process STDIN.
-    messages:
-      - $ref: '#/channels/powerSocket/messages/RawInput'
+    summary: Client sends stdin to server
 
-  emitProcessOutput:
+    description: |
+      Client MUST send:
+
+        {
+          "stdin": "<data>",
+          "newline": false
+        }
+
+      Encoding:
+        - UTF-8 string
+        - URL-safe Base64 string
+
+      Newline Behavior:
+
+        DEFAULT (no STREAM_STDIN waiver):
+          Server ALWAYS appends OS-specific newline.
+
+        IF STREAM_STDIN waiver enabled:
+          newline=true  → append OS newline
+          newline=false → do NOT append newline
+
+      stdin MUST NOT contain newline characters.
+
+    x-rateLimit:
+      type: sliding_window_decay
+      max_messages: 50
+      per_seconds: 1
+      decay_per_second: 50
+      description: >
+        Rate limit is enforced per connection.
+        Exceeding limit results in WebSocket close 1008.
+
+    x-closeCodes:
+      "1008":
+        name: Policy Violation
+        causes:
+          - Invalid alias
+          - Invalid JSON
+          - Rate limit exceeded
+      "1011":
+        name: Internal Server Error
+        causes:
+          - ASGI framework failure
+          - websocket.client not set
+
+    messages:
+      - $ref: '#/channels/powerSocket/messages/TerminalInput'
+
+  sendOutput:
     action: send
     channel:
       $ref: '#/channels/powerSocket'
-    summary: Streams captured STDOUT and STDERR buffers.
+    summary: Server streams stdout and stderr
+
+    description: |
+      Server sends:
+
+        {
+          "stdout": "<data>",
+          "stderr": "<data>"
+        }
+
+      Rules:
+
+        - Both fields are strings (NOT arrays)
+        - Encoding:
+            UTF-8 or URL-safe Base64
+        - Contains ONLY newly generated output
+        - Full buffer is NOT retransmitted
+
     messages:
-      - $ref: '#/channels/powerSocket/messages/BufferedOutput'
+      - $ref: '#/channels/powerSocket/messages/TerminalOutput'
 
 components:
-  messages:
-    RawInput:
-      name: RawInput
-      payload:
-        type: object
-        description: Any string to be written directly to the PTY stdin.
-        example: "echo 'Stream Test'\n"
-        properties:
-          data:
-            type: string
-            enum: [utf8, base64]
 
-    BufferedOutput:
-      name: BufferedOutput
+  messages:
+
+    TerminalInput:
+      name: TerminalInput
+      payload:
+        type: object
+        required:
+          - stdin
+        properties:
+          stdin:
+            type: string
+            description: >
+              Data written directly to PTY stdin.
+              Must NOT contain newline characters.
+              UTF-8 or URL-safe Base64.
+          newline:
+            type: boolean
+            description: >
+              Only meaningful if STREAM_STDIN waiver is enabled.
+              Controls OS newline appending.
+            default: false
+        additionalProperties: false
+        example:
+          stdin: "echo hello"
+          newline: true
+
+    TerminalOutput:
+      name: TerminalOutput
       payload:
         type: object
         properties:
           stdout:
-            type: array
-            items:
-              type: string
-            description: Captured stdout buffer since the last poll.
+            type: string
+            description: >
+              Newly generated stdout data.
+              UTF-8 or URL-safe Base64.
           stderr:
-            type: array
-            items:
-              type: string
-            description: Captured stderr buffer since the last poll.
+            type: string
+            description: >
+              Newly generated stderr data.
+              UTF-8 or URL-safe Base64.
+        additionalProperties: false
         example:
-          stdout:
-            - "Stream Test"
-          stderr: []
+          stdout: "Hello World!"
+          stderr: ""
