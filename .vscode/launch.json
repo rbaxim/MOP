@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug mop",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/mop.py",
+      "args": ["-c", "htop"],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "subProcess": true,
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

@@ -145,14 +145,25 @@ class Terminal:
 
 
     async def read(self, n=1024, waivers: set[Any] = set()) -> dict[str, str]:
-        loop = asyncio.get_running_loop()
         if self.use_pipes:
             proc = cast(asyncio.subprocess.Process, self.proc)
             stdout_obj = cast(asyncio.StreamReader, proc.stdout)
             stderr_obj = cast(asyncio.StreamReader, proc.stderr)
-            stdout = await stdout_obj.read(n)
-            stderr = await stderr_obj.read(n)
-            return {"stdout": stdout.decode("utf-8"), "stderr": stderr.decode("utf-8")}
+            # Poll both streams without blocking on one side.
+            async def read_once(stream: asyncio.StreamReader) -> bytes:
+                try:
+                    return await asyncio.wait_for(stream.read(n), timeout=0.01)
+                except asyncio.TimeoutError:
+                    return b""
+            stdout_task = asyncio.create_task(read_once(stdout_obj))
+            stderr_task = asyncio.create_task(read_once(stderr_obj))
+            try:
+                stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
+            finally:
+                for task in (stdout_task, stderr_task):
+                    if not task.done():
+                        task.cancel()
+            return {"stdout": stdout.decode("utf-8", errors="replace"), "stderr": stderr.decode("utf-8", errors="replace")}
         if sys.platform == "win32":
             if IS_CONPTY_AVAILABLE:
                 # ConPTY
@@ -281,13 +292,11 @@ class Terminal:
             
             buf = memoryview(data.encode("utf-8"))
             start_time = asyncio.get_running_loop().time()
-            MAX_WRITE_TIME = 2.0  # Critical timeout
             
             while buf:
-                # Timeout protection - bail out if stuck
-                if asyncio.get_running_loop().time() - start_time > MAX_WRITE_TIME:
-                    logging.warning("Terminal write timed out - aborting")
-                    break
+                # Honor the caller timeout without dropping partial buffers.
+                if asyncio.get_running_loop().time() - start_time > timeout:
+                    raise TimeoutError(f"Terminal write timed out after {timeout}s")
                     
                 try:
                     n = os.write(self.master_fd, buf)
@@ -295,18 +304,14 @@ class Terminal:
                 except BlockingIOError:
                     # Proper async wait with timeout
                     try:
-                        await asyncio.wait_for(
-                            self._wait_writable(self.master_fd),
-                            timeout=0.5
-                        )
-                        logging.debug("BlockingIOError catched. Retrying write...")
+                        remaining = max(0.01, timeout - (asyncio.get_running_loop().time() - start_time))
+                        await asyncio.wait_for(self._wait_writable(self.master_fd), timeout=min(0.5, remaining))
                     except (asyncio.TimeoutError, asyncio.CancelledError):
-                        logging.debug("Write Timeout exceeded")
-                        break  # Give up and continue shutdown
+                        raise TimeoutError(f"Terminal write timed out after {timeout}s")
                 except (OSError, ValueError) as e:
                     logging.error(f"Terminal write error: {e}")
                     self.close()
-                    break
+                    raise
             
     def close(self) -> None:
         self._closed = True

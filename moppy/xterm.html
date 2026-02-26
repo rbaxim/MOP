@@ -389,14 +389,15 @@
     // State variables
     const API_BASE = '';
     let sessionKey = null;
+    let sessionAlias = null;
     let term = null;
     let fitAddon = null;
     let webLinksAddon = null;
     let isAlive = false;
     let shouldReconnect = true;
-    let lastOutputLength = 0;
     let hasSetWaiver = false;
     let reconnectTimeout = null;
+    let socket = null;
     let echoEnabled = false;
     let isTuiActive = false;
     let ProgramDraws = false;
@@ -463,11 +464,6 @@
       // Initial fit
       fitAddon.fit();
       
-      // Write welcome message after initialization completes
-      term.writeln('\x1b[1;32mModular Protocol Server Terminal\x1b[0m');
-      term.writeln('\x1b[2mSession established. Type commands below.\x1b[0m');
-      term.write('\r\n');
-      
       term.scrollToBottom();
     }
 
@@ -491,29 +487,34 @@
       
       if (typeof input !== 'string' || input === '') return '';
 
-      // THE FIX: If it contains raw escape sequences or non-B64 chars, 
-      // it's likely already raw data. Just return it.
-      if (input.includes('\x1b') || input.includes('\n')) {
-        return input;
-      }
-
       let base64 = input.replace(/-/g, '+').replace(/_/g, '/');
       while (base64.length % 4) {
         base64 += '=';
       }
 
       try {
-        // Check if it's even valid Base64 structure before atob
-        if (!/^[A-Za-z0-9+/=]*$/.test(base64)) {
-            return input; // It's raw text, pass it through
-        }
-
         const binaryString = atob(base64);
         const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
         return new TextDecoder('utf-8').decode(bytes);
       } catch (e) {
+        // Fallback for legacy concatenated base64 chunks (e.g. "...==YWJj...").
+        try {
+          const segments = input.split(/(?<==)(?=[A-Za-z0-9\-_+/])/g).filter(Boolean);
+          if (segments.length > 1) {
+            const decoded = segments.map((segment) => {
+              let part = segment.replace(/-/g, '+').replace(/_/g, '/');
+              while (part.length % 4) part += '=';
+              const binary = atob(part);
+              const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+              return new TextDecoder('utf-8').decode(bytes);
+            }).join('');
+            return decoded;
+          }
+        } catch (fallbackError) {
+          // ignore and passthrough below
+        }
         console.warn("Soft fail on decode, passing raw:", input);
-        return input; 
+        return input;
       }
     }
     
@@ -665,53 +666,89 @@
         return false;
       }
     }
-    
-    // Fetch and render output
-    async function fetchOutput() {
-      if (!isAlive || !shouldReconnect) return;
-      
+
+    async function createAlias(key) {
       try {
-        const res = await fetch(`${API_BASE}/mop/read`, {
+        const res = await fetch(`${API_BASE}/mop/alias`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: sessionKey })
+          body: JSON.stringify({ key })
         });
-        
-        if (res.ok) {
-          const data = await res.json();
-          
-          if (Array.isArray(data.stdout)) {
-            // Process only new data
-            if (data.stdout.length > lastOutputLength) {
-              const newChunks = data.stdout.slice(lastOutputLength);
-              const decoded = base64UrlDecode(newChunks);
-              
-              // Write to terminal
-              term.write(decoded);
-              
-              if (!isTuiActive && detectNcurses(decoded)) {
-                  console.log("Detected ncurses");
-                  isTuiActive = true;
-                  term.write('\x1b[?1h'); 
-                  term.write('\x1b[?1006h');
-                  term.write('\x1b[?1000h');
-                  term.write('\x1b[?1015h');
-              }
-
-              // term.scrollToBottom();
-              
-              lastOutputLength = data.stdout.length;
-            }
-          }
-        } else if (res.status === 404 || res.status === 400) {
-          updateStatus('INVALID', 'status-terminated');
-          shouldReconnect = false;
-          localStorage.removeItem("mop_key")
-          showNotification('Invalid session key', 'error');
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data && data.alias) {
+          return data.alias;
         }
       } catch (err) {
-        // Silent fail - ping will handle connectivity status
+        return null;
       }
+      return null;
+    }
+    
+    function handleStreamChunk(data) {
+      const decodedStdout = base64UrlDecode(data.stdout || "");
+      const decodedStderr = base64UrlDecode(data.stderr || "");
+      const decoded = `${decodedStdout}${decodedStderr}`;
+      if (!decoded) return;
+      term.write(decoded);
+      if (!isTuiActive && detectNcurses(decoded)) {
+        console.log("Detected ncurses");
+        isTuiActive = true;
+        term.write('\x1b[?1h');
+        term.write('\x1b[?1006h');
+        term.write('\x1b[?1000h');
+        term.write('\x1b[?1015h');
+      }
+    }
+
+    async function connectSocket() {
+      if (!sessionAlias) return false;
+      if (socket && socket.readyState === WebSocket.OPEN) return true;
+      return await new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
+        };
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProto}//${window.location.host}/mop/power/sock/${encodeURIComponent(sessionAlias)}`;
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+          isAlive = true;
+          updateStatus('ALIVE', 'status-alive');
+          document.getElementById('protocol-status').textContent = 'MOP/WS-1.0';
+          finish(true);
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.stdout !== undefined || payload.stderr !== undefined) {
+              handleStreamChunk(payload);
+            }
+          } catch (err) {
+            // Ignore malformed frame payloads
+          }
+        };
+
+        socket.onerror = () => {
+          updateStatus('OFFLINE', 'status-offline blink');
+          finish(false);
+        };
+
+        socket.onclose = () => {
+          finish(false);
+          if (shouldReconnect) {
+            isAlive = false;
+            updateStatus('OFFLINE', 'status-offline blink');
+            setTimeout(() => {
+              if (shouldReconnect) connectSocket();
+            }, 1200);
+          }
+        };
+      });
     }
 
     function Base64UrlEncode(utf8String) {
@@ -734,15 +771,11 @@
       if (!isAlive) return;
       
       try {
-        const res = await fetch(`${API_BASE}/mop/write`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: sessionKey, stdin: Base64UrlEncode(command), newline: newline })
-        });
-        
-        if (!res.ok) {
-          showNotification(`Write error: ${res.status}`, 'error');
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          const connected = await connectSocket();
+          if (!connected) throw new Error("WebSocket not connected");
         }
+        socket.send(JSON.stringify({ stdin: Base64UrlEncode(command), newline: newline }));
       } catch (err) {
         showNotification(`Write failed: ${err.message}`, 'error');
       }
@@ -764,6 +797,10 @@
     // End session
     async function endSession() {
       try {
+        shouldReconnect = false;
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.close();
+        }
         await fetch(`${API_BASE}/mop/end`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -792,12 +829,12 @@
           hasSetWaiver = true;
         }
         
-        if (isAlive) {
-          await fetchOutput();
+        if (isAlive && (!socket || socket.readyState !== WebSocket.OPEN)) {
+          await connectSocket();
         }
         
-        // Wait before next iteration (faster when alive)
-        await new Promise(r => setTimeout(r, isAlive ? 300 : 2000));
+        // Keep ping for status/termination detection.
+        await new Promise(r => setTimeout(r, isAlive ? 2000 : 2500));
       }
     }
     
@@ -855,6 +892,18 @@
       
       // Step 6: Initialize terminal UI
       sessionKey = key;
+      const aliasStep = addInitStep("Creating websocket alias...");
+      sessionAlias = await createAlias(sessionKey);
+      if (!sessionAlias) {
+        aliasStep.textContent = "Failed to create websocket alias";
+        aliasStep.className = "init-step error";
+        addInitStep("Cannot continue without websocket transport", "error");
+        setTimeout(() => { window.location.href = '/'; }, 2500);
+        return;
+      }
+      aliasStep.textContent = "Websocket alias ready";
+      aliasStep.className = "init-step ok";
+
       initTerminal();
       
       // Step 7: Show terminal UI and hide init screen
@@ -875,6 +924,7 @@
         hasSetWaiver = true;
         isAlive = true;
         updateStatus('ALIVE', 'status-alive');
+        connectSocket();
         sessionLoop();
         
         // Set up event listeners
@@ -921,8 +971,6 @@
 
           if (charCode >= 1 && charCode <= 26 && e !== '\r' && e !== '\t') {
             console.log(`Detected Control Key: Ctrl+${String.fromCharCode(charCode + 64)} (Hex: ${charCode.toString(16)})`);
-            
-            term.write(`^${String.fromCharCode(charCode + 64)}`)
             sendInput(e); 
             return;
           }
@@ -970,6 +1018,9 @@
     // Cleanup on unload
     window.addEventListener('beforeunload', () => {
       shouldReconnect = false;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
       clearTimeout(reconnectTimeout);
     });
   </script>

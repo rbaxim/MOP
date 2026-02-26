@@ -5,7 +5,7 @@
 """
 Modular Application Terminal
 """
-from fastapi import FastAPI, Request # pyright: ignore[reportMissingImports]
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect # pyright: ignore[reportMissingImports]
 from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse, JSONResponse, RedirectResponse, Response # pyright: ignore[reportMissingImports]
 import hashlib
 import aiohttp # pyright: ignore[reportMissingImports]
@@ -115,6 +115,25 @@ async def fetch_backend(path: str, method="GET", body=None, headers=None):
         "body": b'{"status": "Failed to fetch backend", "code": 1}',
         "headers": {},
     }
+
+
+def ws_backend_urls(path: str) -> list[tuple[str, str]]:
+    if app.state.mop_scheme == "https":
+        return [
+            ("wss", f"wss://localhost:8000/{path}"),
+            ("wss", f"wss://127.0.0.1:8000/{path}"),
+        ]
+    if app.state.mop_scheme == "http":
+        return [
+            ("ws", f"ws://localhost:8000/{path}"),
+            ("ws", f"ws://127.0.0.1:8000/{path}"),
+        ]
+    return [
+        ("wss", f"wss://localhost:8000/{path}"),
+        ("wss", f"wss://127.0.0.1:8000/{path}"),
+        ("ws", f"ws://localhost:8000/{path}"),
+        ("ws", f"ws://127.0.0.1:8000/{path}"),
+    ]
     
 def etag_response(func):
     async def wrapper(request: Request):
@@ -206,6 +225,76 @@ async def client(request: Request, full_path: str = ""):
 @app.get("/")
 async def root(request: Request):
     return RedirectResponse(url="/ui/", status_code=301)
+
+
+@app.websocket("/mop/power/sock/{key}")
+async def proxy_websocket(websocket: WebSocket, key: str):
+    await websocket.accept()
+
+    backend_ws = None
+    backend_error = None
+    path = f"mop/power/sock/{key}"
+
+    for scheme, url in ws_backend_urls(path):
+        try:
+            logging.info(f"Connecting websocket {url}")
+            backend_ws = await app.state.session.ws_connect(  # pyright: ignore[reportOptionalMemberAccess]
+                url,
+                ssl=app.state.ssl_context if scheme == "wss" else False,
+                heartbeat=20,
+                autoping=True,
+            )
+            app.state.mop_scheme = "https" if scheme == "wss" else "http"
+            break
+        except Exception as e:
+            backend_error = e
+            continue
+
+    if backend_ws is None:
+        logging.error(f"WebSocket proxy connection failed: {backend_error}")
+        await websocket.close(code=1011, reason="Failed to connect to backend websocket")
+        return
+
+    async def client_to_backend():
+        while True:
+            try:
+                message = await websocket.receive()
+            except WebSocketDisconnect:
+                break
+
+            if message["type"] == "websocket.disconnect":
+                break
+
+            text = message.get("text")
+            data = message.get("bytes")
+            if text is not None:
+                await backend_ws.send_str(text)
+            elif data is not None:
+                await backend_ws.send_bytes(data)
+
+    async def backend_to_client():
+        while True:
+            msg = await backend_ws.receive()
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                await websocket.send_text(msg.data)
+            elif msg.type == aiohttp.WSMsgType.BINARY:
+                await websocket.send_bytes(msg.data)
+            elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
+                break
+            elif msg.type == aiohttp.WSMsgType.ERROR:
+                break
+
+    try:
+        await asyncio.gather(client_to_backend(), backend_to_client())
+    finally:
+        try:
+            await backend_ws.close()
+        except Exception:
+            pass
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 @app.get("/{full_path:path}")
 async def route_to_backend(request: Request, full_path: str):

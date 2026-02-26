@@ -23,10 +23,14 @@ import hashlib
 import json
 from pathlib import Path
 import importlib.util
-from typing import Literal, cast, BinaryIO, TextIO, Callable,  Any, Tuple
+from typing import Literal, cast, BinaryIO, TextIO, Callable,  Any, Tuple, AsyncGenerator, Union, Optional
 import warnings
 import shutil
 import base64
+from contextlib import asynccontextmanager
+import random
+import binascii
+
 def is_pypy():
     return '__pypy__' in sys.builtin_module_names
 
@@ -259,6 +263,10 @@ import moppy.utils as utils # pyright: ignore[reportMissingImports]  # noqa: E40
 import base91 # pyright: ignore[reportMissingImports] # noqa: E402
 import moppy.hints as hints # pyright: ignore[reportMissingImports]  # noqa: E402
 import moppy.backends.loader as loader # noqa: E402
+from uuid import uuid4 as uuid_obj # noqa: E402
+
+def uuid():
+    return str(uuid_obj())
 
 colorama_init()
 
@@ -275,6 +283,7 @@ parser.add_argument("-w", "--workers", default=1, type=int, help="Sets the amoun
 parser.add_argument("--force-port", default=False, action="store_true", help="Disables interactive prompts when another process is bound to the port FastAPI wants to use and kills the process using the port without warning")
 parser.add_argument("--no-pub-process", default=False, action="store_true", help="Prevents automatic creation of a public session")
 parser.add_argument("--legacy", default=False, action="store_true", help="Uses uvicorn instead of Hypercorn")
+parser.add_argument("--debug", default=False, action="store_true", help="Enables debug logging for IPC operations and other internal processes. This may cause a performance decrease and should only be used for debugging purposes.")
 args = parser.parse_args()
 
 try:
@@ -311,11 +320,15 @@ if args.ssl and not is_ssl_certs_exists:
 config = loader.read_config()
 
 terminal_name = config.get("Backend", {}).get("Terminal", "default")
+datastore_name = config.get("Backend", {}).get("Datastore", "default")
 
 Terminal_Module = loader.load_terminal(terminal_name)
 spawn_tty: Callable = Terminal_Module.spawn_tty # type: ignore
 spawn_pipe: Callable = Terminal_Module.spawn_pipe # type: ignore
 Terminal: hints.Terminal = Terminal_Module.Terminal # type: ignore
+
+Datastore_Module = loader.load_datastore(datastore_name)
+Datastore: hints.Datastore | type = Datastore_Module.Datastore # pyright: ignore[reportAssignmentType]
 
 if sys.platform == "win32" and "win32" not in Terminal_Module.metadata["os_supported"]:
     print(f"{Fore.RED}ERROR{Fore.RESET}:    Windows is not supported with current Terminal backend")
@@ -413,16 +426,16 @@ if __name__ == "__main__":
             cmd.append(str(Path(key).absolute()))
         non_core_plugins[name]["handle"] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=mop_cwd) # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting plugin:", name + f" at port {plugin['port']}" if plugin["port"] else "")
-        none_core_plugin_handle = cast(subprocess.Popen, core_plugins[name]["handle"])
+        non_core_plugin_handle = cast(subprocess.Popen, core_plugins[name]["handle"])
         time.sleep(0.5)
-        if none_core_plugin_handle.poll() is None:
+        if non_core_plugin_handle.poll() is None:
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     {name} is running!")
         else:
-            assert none_core_plugin_handle.stdout is not None, "Did you remove the pipe for stdout?"
-            assert none_core_plugin_handle.stderr is not None, "Did you remove the pipe for stderr?"
+            assert non_core_plugin_handle.stdout is not None, "Did you remove the pipe for stdout?"
+            assert non_core_plugin_handle.stderr is not None, "Did you remove the pipe for stderr?"
             print(f"{Fore.RED}ERROR{Fore.RESET}:    {name} failed to start!")
-            print(f"{Fore.RED}ERROR{Fore.RESET}:    Stdout: {none_core_plugin_handle.stdout.read().decode('utf-8', replace=True)}")
-            print(f"{Fore.RED}ERROR{Fore.RESET}:    Stderr: {none_core_plugin_handle.stderr.read().decode('utf-8', replace=True)}")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Stdout: {non_core_plugin_handle.stdout.read().decode('utf-8', replace=True)}")
+            print(f"{Fore.RED}ERROR{Fore.RESET}:    Stderr: {non_core_plugin_handle.stderr.read().decode('utf-8', replace=True)}")
             sys.exit(1)
             
     print(f"{Fore.GREEN}INFO{Fore.RESET}:     All non-core plugins are running!")
@@ -433,9 +446,8 @@ if __name__ == "__main__":
     
     for script in scripts:
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Running script: {script}")
-        handle = subprocess.Popen(["python", str(script)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        while handle.poll() is None:
-            time.sleep(0.5)
+        handle = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        handle.wait()
         print(f"{Fore.GREEN}INFO{Fore.RESET}:     Ran script: {script}")
 
 def is_uvicorn():
@@ -497,6 +509,7 @@ else:
     
 
 sessions: hints.Session_storage = {}
+powers: hints.Power_storage = {}
 
 open("mop.log", "w").close()
 
@@ -519,9 +532,13 @@ class StreamToLogger(hints.TextStream):
         self.logger = logger
         self.level = level
         self.buffer = ""
+        
 
     def write(self, message: str) -> int: # pyright: ignore[reportIncompatibleMethodOverride]
-        self.original.write(message)
+        if "DEBUG" not in message:
+            self.original.write(message)
+        elif args.debug and "DEBUG" in message:
+            self.original.write(message)
         self.original.flush()
         
         message = message.rstrip()
@@ -536,20 +553,144 @@ class StreamToLogger(hints.TextStream):
     def isatty(self) -> bool:
         return True
     
+def big_hash(s) -> str:
+    if s is None: 
+        return ""
+    b = s if isinstance(s, bytes) else str(s).encode("utf-8")
+    return hashlib.sha512(pepper + b).hexdigest()
+    
 logger = logging.getLogger("mop")
 
 new_stdout: hints.TextStream = StreamToLogger(sys.stdout, logger, logging.INFO)
 new_stderr: hints.TextStream = StreamToLogger(sys.stderr, logger, logging.ERROR)
-sys.stdout = cast(TextIO, new_stdout)
-sys.stderr = cast(TextIO, new_stderr)
+sys.stdout = cast(StreamToLogger, new_stdout)
+sys.stderr = cast(StreamToLogger, new_stderr)
 
 command = shlex.split(args.cmd)
-pub_key = secrets.token_hex(128)
+pub_key = big_hash(pepper)
 
 global app
 
+async def datastore_worker():
+    datastore = app.state.manager
+    while True:
+        # Check the queue for new requests
+        req = datastore.check_requests()
+        if req is not None:
+            # Do something with the request
+            payload: dict = req.get("payload", {})
+            to: int = req.get("from", "")
+            id: str = req.get("id", "")
+            operation: str = payload.get("Operation", "Existance")
+            key: str = payload.get("key", "") # Key is prehashed
+            print(f"{Fore.WHITE}DEBUG{Fore.RESET}:    Got request {operation} from {to}")
+            match req["payload"]["Operation"]:
+                case "Alias":
+                    response = await mop_handlers.MopAlias(key)
+                    alias = response[0]["alias"]
+                    datastore.response(to, key, {"alias": alias}, id)
+                case "Existance": # Basically a NOP
+                    pass
+                case "AtticTell":
+                    info = payload.get("info")
+                    response = await mop_handlers.MopAtticTell(key, info)
+                    out = response[0]["attic_response"]
+                    datastore.response(to, key, {"out": out}, id)
+                case "GetTags":
+                    response = await mop_handlers.MopCosmeticsGet_tags(key)
+                    tags = response[0]["tags"]
+                    datastore.response(to, key, {"tags": tags}, id)
+                case "SetTags":
+                    tags = payload.get("tags")
+                    response = await mop_handlers.MopCosmeticsSet_tags(key, tags)
+                    datastore.response(to, key, {"payload": response[0], "status_code": response[1]}, id)
+                case "SetAttic":
+                    response = await mop_handlers.MopSet_attic(key)
+                    datastore.response(to, key, {"payload": response[0], "status_code": response[1]}, id)
+                case "Stream":
+                    is_alive = payload.get("is_alive")
+                    if not is_alive or key not in sessions:
+                        datastore.response(to, key, {"stdout": "", "stderr": ""}, id)
+                        continue
+
+                    buffers = sessions[key]["buffers"]
+                    stdout_buffer: utils.ByteLimitedLog = buffers.get("stdout", utils.ByteLimitedLog())
+                    stderr_buffer: utils.ByteLimitedLog = buffers.get("stderr", utils.ByteLimitedLog())
+                    stdout_full: list[str] = stdout_buffer.buffer()
+                    stderr_full: list[str] = stderr_buffer.buffer()
+
+                    cursor_key = f"stream_cursor:{to}:{key}"
+                    cursor = datastore.get_server_value(cursor_key, {"stdout": 0, "stderr": 0})
+                    last_stdout = int(cursor.get("stdout", 0))
+                    last_stderr = int(cursor.get("stderr", 0))
+
+                    if last_stdout > len(stdout_full):
+                        last_stdout = 0
+                    if last_stderr > len(stderr_full):
+                        last_stderr = 0
+
+                    waivers = sessions[key].get("waivers", set())
+                    stdout_chunks = stdout_full[last_stdout:]
+                    stderr_chunks = stderr_full[last_stderr:]
+
+                    if utils.Waiver.RAW_ANSI in cast(set[Any], waivers):
+                        out_stdout = _merge_raw_ansi_chunks(stdout_chunks)
+                        out_stderr = _merge_raw_ansi_chunks(stderr_chunks)
+                    else:
+                        out_stdout = "".join(stdout_chunks)
+                        out_stderr = "".join(stderr_chunks)
+                    datastore.set_server_value(cursor_key, {"stdout": len(stdout_full), "stderr": len(stderr_full)})
+                    datastore.response(to, key, {"stdout": out_stdout, "stderr": out_stderr}, id)
+                case "Write":
+                    data = payload.get("data")
+                    waivers = payload.get("waivers", [])
+                    newline = payload.get("newline", False)
+                    response = await mop_handlers.Write(key, data, waivers if waivers else None, newline)
+                    datastore.response(to, key, {"payload": response[0], "status_code": response[1]}, id)
+                case "Signal":
+                    signal = payload.get("signal", "")
+                    response = await mop_handlers.MopSignal(key, signal)
+                    datastore.response(to, key, {"payload": response[0], "status_code": response[1]}, id)
+                case "End":
+                    pickle_data = payload.get("pickle", {})
+                    response = await mop_handlers.MopEnd(key, pickle_data)
+                    datastore.response(to, key, {"payload": response[0], "status_code": response[1]}, id)
+                case "Read":
+                    response = await mop_handlers.MopRead(key)
+                    datastore.response(to, key, {"payload": response[0], "status_code": response[1]}, id)
+                case "Waiver":
+                    waivers = payload.get("waivers", {})
+                    remove = payload.get("remove", [])
+                    response = await mop_handlers.MopWaiver(key, waivers, remove)
+                    datastore.response(to, key, {"payload": response[0], "status_code": response[1]}, id)
+                case "Ping":
+                    response = await mop_handlers.MopPing(key)
+                    datastore.response(to, key, {"payload": response[0], "status_code": response[1]}, id)
+                case "WebsocketConnection":
+                    app.state.manager.unregister(key)
+                case _: # Another NOP
+                    pass
+                
+        await asyncio.sleep(0.1)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await asyncio.sleep(random.uniform(0.01, 0.1)) # nosec B311
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     {os.getpid()} - Connecting to Manager", flush=True) # pyright: ignore[reportAttributeAccessIssue]
+    app.state.manager = cast(hints.Datastore, Datastore(authkey=b"test")) # type: ignore
+    if app.state.manager.get_server_value("start_time") is None:
+        app.state.manager.set_server_value("start_time", app.state.start_time)
+    if app.state.manager.get_server_value("server_id") is None:
+        app.state.manager.set_server_value("server_id", server_id)
+    app.state.manager.set_server_value(f"worker:{os.getpid()}", {"sessions": len(sessions.keys()), "pending_writes": 0})
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     {os.getpid()} - Starting datastore worker", flush=True) # pyright: ignore[reportAttributeAccessIssue]
+    logger.info(f"{os.getpid()}")
+    app.state.ipc_worker = asyncio.create_task(datastore_worker())
+    yield
+    app.state.ipc_worker.cancel()
+
 def create_app(command: list[str]):
-    app = FastAPI(title="MOP", description="A stdio <-> HTTP(s) bridge.", version="1.1.1")
+    app = FastAPI(title="MOP", description="A stdio <-> HTTP(s) bridge.", version="1.1.1", lifespan=lifespan)
     app.state.command = command
     return app
 
@@ -576,7 +717,7 @@ def custom_openapi():
                 "• **Server → Client:** JSON messages containing `stdout` and `stderr` arrays.\n"
                 "• **Client → Server:** JSON messages containing `stdin` string input.\n\n"
                 "Connection upgrades via HTTP `101 Switching Protocols`.\n\n"
-                f"AsyncAPI Portal: http{'s' if args.ssl else ''}://127.0.0.1:{args.port}/asyncDocs"
+                f"(AsyncAPI Portal)[http{'s' if args.ssl else ''}://127.0.0.1:{args.port}/asyncDocs]"
             ),
             "tags": ["MOP Power Endpoints"],
             "parameters": [
@@ -632,14 +773,14 @@ def custom_openapi():
         "type": "object",
         "properties": {
             "stdout": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "New stdout lines"
+                "type": "string",
+                "description": "New stdout lines",
+                "example": "hahahaha i am in stdout"
             },
             "stderr": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "New stderr lines"
+                "type": "string",
+                "description": "New stderr lines",
+                "example": "hahahaha i am in stderr"
             }
         }
     }
@@ -650,7 +791,14 @@ def custom_openapi():
         "properties": {
             "stdin": {
                 "type": "string",
-                "description": "Raw input to send to terminal stdin"
+                "pattern": r"^[^\r\n]*$",
+                "description": "Raw input to send to terminal stdin",
+                "example": "echo hello"
+            },
+            "newline": {
+                "type": "boolean",
+                "description": f"Appends a OS specific newline if true. ONLY MEANINGFUL IF STREAM_STDIN waiver is enabled. See [AsyncAPI](http{'s' if args.ssl else ''}://127.0.0.1:{args.port}/asyncDocs) for more detail",
+                "example": True
             }
         },
         "required": ["stdin"]
@@ -665,12 +813,17 @@ app.openapi = custom_openapi # type: ignore[method-assign]
 
 app.state.start_time = time.monotonic()
 app.state.pepper = pepper
-        
-def big_hash(s) -> str:
-    if s is None: 
-        return ""
-    b = s if isinstance(s, bytes) else str(s).encode("utf-8")
-    return hashlib.sha512(app.state.pepper + b).hexdigest()
+
+@app.middleware("http")
+async def log_worker(request: Request, call_next):
+    if hasattr(app.state, "manager"):
+        pending_writes = 0
+        if pub_key in sessions:
+            pending_writes = cast(hints.PubSession, sessions[pub_key])["queue"].qsize()
+        app.state.manager.set_server_value(f"worker:{os.getpid()}", {"sessions": len(sessions.keys()), "pending_writes": pending_writes})
+    print(f"{Fore.WHITE}DEBUG{Fore.RESET}:    Worker {os.getpid()} handling {Fore.GREEN}{request.method}{Fore.RESET} {request.url.path}")
+    response = await call_next(request)
+    return response
 
 # everything and everybody says that this is bad and shouldnt be used. but then why is it working tho
 def etag_response(func):
@@ -776,6 +929,498 @@ async def write(data: str, key: str, waivers: set[str | Any]):
 
     return {"status": "Wrote data", "code": 0}, 200
 
+
+def _merge_raw_ansi_chunks(chunks: list[str]) -> str:
+    decoded_parts: list[bytes] = []
+    for chunk in chunks:
+        if not chunk:
+            continue
+        normalized = chunk + ("=" * ((4 - len(chunk) % 4) % 4))
+        try:
+            decoded_parts.append(base64.b64decode(normalized))
+        except (binascii.Error, ValueError):
+            return "".join(chunks)
+    return base64.b64encode(b"".join(decoded_parts)).decode("ascii")
+
+class mop_handlers:
+    @staticmethod
+    async def check_response(key, operation_id, timeout_seconds=3.0, poll_interval=0.05):
+        start = time.monotonic()
+        attempts = 0
+        while time.monotonic() - start < timeout_seconds:
+            attempts += 1
+            print(f"{Fore.WHITE}DEBUG{Fore.RESET}:    Waiting for response for operation {operation_id[:4]} from {key[:6]}, attempt {attempts}")
+            response = app.state.manager.check_response(key, operation_id)
+            if response is not None:
+                return response
+            await asyncio.sleep(poll_interval)
+        return None
+    
+    @staticmethod
+    async def MopAlias(key):
+        operation_id = uuid()
+        
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "Alias", "key": key}, operation_id)
+            if not status:
+                return {"status": "Invalid Key", "code": 1}, 404
+            else:
+                # this process doesnt own the key. need to use the manager
+                response = await mop_handlers.check_response(key, operation_id)
+                if response is None:
+                    return {"status": "Encountered error with IPC", "code": 1}, 500
+                alias = response.get("alias")
+        else:
+            # this process owns the key
+            alias = secrets.token_hex(32)
+            
+            sessions[alias] = key # type: ignore
+            app.state.manager.register(alias)
+        
+        return {"status": "Created Alias", "alias": alias, "code": 0}, 200
+    
+    @staticmethod
+    async def MopValidate(key):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "Existance", "key": key}, operation_id)
+            if not status: # Status states if it was able to send the message or not. No message = invalid key
+                return {"status": "Invalid key", "code": 1}, 404
+                
+        return {"status": "Key exists", "code": 0}, 200
+    
+    @staticmethod
+    async def MopAtticTell(key, info):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "AtticTell", "key": key, "info": info}, operation_id)
+            if not status:
+                return {"status": "Invalid key", "code": 1}, 404
+            else:
+                await asyncio.sleep(0.1) # give time to the operation. all overhead is the IPC
+                response = await mop_handlers.check_response(key, operation_id)
+                if response is None:
+                    return {"status": "Encountered error with IPC", "code": 1}, 500
+                out = response.get("out")
+        else:
+            try:
+                out = utils.attic(key, sessions[key]["tty"].pid).tell(info)
+            except Exception as e:
+                return {"status": f"Failed to tell process data due to {str(e)}"}, 500
+        
+        return {"status": "Sucessfully got attic output","attic_response": out, "code": 0}, 200
+    
+    @staticmethod
+    async def MopCosmeticsGet_tags(key):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "GetTags", "key": key}, operation_id)
+            if not status:
+                return {"status": "Invalid key", "code": 1}, 404
+            else:
+                await asyncio.sleep(0.1)
+                response = await mop_handlers.check_response(key, operation_id)
+                if response is None:
+                    return {"status": "Encountered error with IPC", "code": 1}, 500
+                tags = response.get("tags")
+        else:
+            tags = sessions[key]["tags"]
+        
+        return {"tags": tags, "code": 0}, 200
+    
+    @staticmethod
+    async def MopCosmeticsSet_tags(key, tags):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "SetTags", "key": key, "tags": tags}, operation_id)
+            if not status:
+                return {"status": "Invalid key", "code": 1}, 404
+            else:
+                response = await mop_handlers.check_response(key, operation_id)
+                if response is None:
+                    return {"status": "Encountered error with IPC", "code": 1}, 500
+                
+        else:
+            sessions[key]["tags"] = tags
+        return {"status": "Tags updated", "code": 0}, 200
+    
+    @staticmethod
+    async def MopSet_attic(key):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "SetAttic", "key": key}, operation_id)
+            if not status:
+                return {"status": "Invalid key", "code": 1}, 404
+            response = await mop_handlers.check_response(key, operation_id)
+            if response is None:
+                return {"status": "Encountered error with IPC", "code": 1}, 500
+        else:
+            session_copy = cast(hints.PrivSession, sessions[key]).copy()
+            session_copy["attic"] = True
+            sessions[key] = session_copy
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Attic flag set for {key[:6]}")
+        return {"status": "Attic flag set", "code": 0}, 200
+
+    @staticmethod
+    async def MopSignal(key, signal):
+        operation_id = uuid()
+        signal_map = {
+            "INTERRUPT": utils.Signal.INTERRUPT,
+            "TERMINATE": utils.Signal.TERMINATE,
+            "KILL": utils.Signal.KILL
+        }
+        if signal not in signal_map:
+            return {"status": "Invalid signal", "code": 1}, 404
+
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "Signal", "key": key, "signal": signal}, operation_id)
+            if not status:
+                return {"status": "Invalid key", "code": 1}, 404
+            response = await mop_handlers.check_response(key, operation_id)
+            if response is None:
+                return {"status": "Encountered error with IPC", "code": 1}, 500
+            return response.get("payload", {"status": "Signal sent", "code": 0}), response.get("status_code", 200)
+
+        try:
+            if signal in ("INTERRUPT", "TERMINATE", "KILL"):
+                await sessions[key]["tty"].send_signal(signal_map[signal])
+                cast(asyncio.Task, sessions[key]["task_out"]).cancel()
+                cast(hints.Terminal, sessions[key]["tty"]).close()
+            else:
+                await sessions[key]["tty"].send_signal(signal_map[signal])
+            del sessions[key]
+            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Sent signal {signal} to session {key[:6]}")
+            if len(sessions) < 2 and pub_key in sessions:
+                cast(hints.PubSession, sessions[pub_key])["task_out"].cancel()
+                cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(None)
+                cast(hints.PubSession, sessions[pub_key])["task_in"].cancel()
+                cast(hints.PubSession, sessions[pub_key])["tty"].close()
+                del sessions[pub_key]
+                print(f"{Fore.GREEN}INFO{Fore.RESET}:     Killed public session {pub_key[:6]} due to no other sessions remaining")
+            return {"status": "Signal sent", "code": 0}, 200
+        except Exception:
+            return {"status": "Failed to send signal", "code": 1}, 500
+
+    @staticmethod
+    async def MopEnd(key, pickle_data):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "End", "key": key, "pickle": pickle_data}, operation_id)
+            if not status:
+                return {"status": "Invalid key", "code": 1}, 404
+            response = await mop_handlers.check_response(key, operation_id)
+            if response is None:
+                return {"status": "Encountered error with IPC", "code": 1}, 500
+            return response.get("payload", {"status": "Session ended", "code": 0}), response.get("status_code", 200)
+
+        failed_to_store: str = ""
+        term: hints.Terminal = sessions[key]["tty"]
+
+        try:
+            sessions[key]["task_out"].cancel()
+        except Exception:
+            pass
+
+        if sys.platform == "win32" and not term.is_pipe:
+            try:
+                await term.send_signal(utils.Signal.KILL)
+            except Exception:
+                pass
+        elif sys.platform != "win32" and not term.is_pipe:
+            try:
+                proc = cast(asyncio.subprocess.Process, term.proc)
+                await term.send_signal(utils.Signal.TERMINATE)
+                await proc.wait()
+                os.close(term.master_fd)
+            except Exception:
+                pass
+        elif term.is_pipe:
+            try:
+                if term.proc is None:
+                    return {"status": "Terminal not found", "code": 1}, 500
+                await term.send_signal(utils.Signal.TERMINATE)
+                await term.proc.wait()
+            except Exception:
+                pass
+
+        if not sessions[key].get("attic", False):
+            del sessions[key]
+        else:
+            try:
+                await utils.attic(key, term.pid).set(pickle_data)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                failed_to_store = str(e)
+            del sessions[key]
+
+        if len(sessions) < 2 and pub_key in sessions and not args.no_pub_process:
+            try:
+                sessions[pub_key]["task_out"].cancel()
+                cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(None)
+                cast(hints.PubSession, sessions[pub_key])["task_in"].cancel()
+            except Exception:
+                pass
+            pub_term: hints.Terminal = sessions[pub_key]["tty"]
+            if sys.platform == "win32":
+                try:
+                    await pub_term.send_signal(utils.Signal.KILL)
+                    pub_term.close()
+                except Exception:
+                    pass
+            else:
+                try:
+                    await pub_term.send_signal(utils.Signal.TERMINATE)
+                    pub_term.close()
+                except Exception:
+                    pass
+            del sessions[pub_key]
+
+        return {"status": f"Session ended{f' and failed to store to attic due to {str(failed_to_store)}' if failed_to_store else ''}", "code": 0}, 200
+
+    @staticmethod
+    async def MopRead(key):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "Read", "key": key}, operation_id)
+            if not status:
+                return {"status": "Invalid key", "code": 1}, 404
+            response = await mop_handlers.check_response(key, operation_id)
+            if response is None:
+                return {"status": "Encountered error with IPC", "code": 1}, 500
+            return response.get("payload", {"status": "Invalid key", "code": 1}), response.get("status_code", 500)
+
+        if cast(asyncio.Task, sessions[key]["task_out"]).done():
+            return {"status": "Task reached EOF", "code": 1}, 500
+
+        buffer_stdout: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", utils.ByteLimitedLog())
+        buffer_stderr: utils.ByteLimitedLog = sessions[key]["buffers"].get("stderr", utils.ByteLimitedLog())
+        stdout: list = buffer_stdout.buffer()
+        stderr: list = buffer_stderr.buffer()
+
+        out: dict[str, list[str]] = {"stdout": stdout, "stderr": stderr}
+        return {"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(memoryview, json.dumps(out, sort_keys=True).encode("utf-8")), usedforsecurity=False).hexdigest()}, 200 # nosec
+
+    @staticmethod
+    async def MopWaiver(key, waivers, remove):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "Waiver", "key": key, "waivers": waivers, "remove": remove}, operation_id)
+            if not status:
+                return {"status": "Invalid key", "code": 1}, 404
+            response = await mop_handlers.check_response(key, operation_id)
+            if response is None:
+                return {"status": "Encountered error with IPC", "code": 1}, 500
+            return response.get("payload", {"status": "Waiver(s) set/removed", "code": 0}), response.get("status_code", 200)
+
+        if not waivers:
+            return {"status": "No waivers set", "code": 0}, 200
+
+        for waiver, value in waivers.items():
+            if waiver.lower() == "raw_ansi":
+                cast(hints.PrivSession, sessions[key])["waivers"].add(utils.Waiver.RAW_ANSI)
+            elif waiver.lower() == "b64_stdin":
+                cast(hints.PrivSession, sessions[key])["waivers"].add(utils.Waiver.B64_STDIN)
+            elif waiver.lower() == "stream_stdin":
+                cast(hints.PrivSession, sessions[key])["waivers"].add(utils.Waiver.STREAM_STDIN)
+            else:
+                return {"status": f"Unknown waiver: {waiver}", "code": 1}, 404
+
+        for waiver in remove:
+            try:
+                cast(hints.PrivSession, sessions[key])["waivers"].remove(waiver)
+            except Exception:
+                return {"status": "Unable to remove waiver", "code": 1}, 500
+
+        return {"status": "Waiver(s) set/removed", "code": 0}, 200
+
+    @staticmethod
+    async def MopPing(key):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "Ping", "key": key}, operation_id)
+            if not status:
+                return {"status": "Session not found", "code": 1}, 404
+            response = await mop_handlers.check_response(key, operation_id)
+            if response is None:
+                return {"status": "Encountered error with IPC", "code": 1}, 500
+            return response.get("payload", {"status": "Session not found", "code": 1}), response.get("status_code", 500)
+
+        term: hints.Terminal = sessions[key]["tty"]
+        if term.is_alive:
+            return {"status": "Process is alive", "code": 0}, 200
+        return {"status": "Process is terminated", "code": 1}, 410
+
+    @staticmethod
+    async def MopProcess():
+        local_pending_writes = 0
+        if pub_key in sessions:
+            local_pending_writes = cast(hints.PubSession, sessions[pub_key])["queue"].qsize()
+        app.state.manager.set_server_value(f"worker:{os.getpid()}", {"sessions": len(sessions.keys()), "pending_writes": local_pending_writes})
+
+        app.state.manager.set_server_value("process_meta", {
+            "command": list(app.state.command),
+            "server_id": app.state.manager.get_server_value("server_id", server_id),
+            "pub_key": pub_key,
+            "version": "1.1.1",
+            "start_time": app.state.manager.get_server_value("start_time", app.state.start_time),
+        })
+
+        response = {
+            "status": "No process is running.",
+            "server_id": app.state.manager.get_server_value("server_id", server_id),
+            "command": list(app.state.command),
+            "uptime": f"{int(time.monotonic() - float(app.state.manager.get_server_value('start_time', app.state.start_time)))}",
+            "version": "1.1.1",
+            "code": 0
+        }
+
+        worker_data = app.state.manager.get_server_data()
+        total_sessions = 0
+        total_pending_writes = 0
+        for worker, stats in worker_data.items():
+            if not str(worker).startswith("worker:"):
+                continue
+            total_sessions += int(stats.get("sessions", 0))
+            total_pending_writes += int(stats.get("pending_writes", 0))
+
+        if total_sessions > 0:
+            response = {
+                "command": list(app.state.command),
+                "server_id": app.state.manager.get_server_value("server_id", server_id),
+                "sessions": total_sessions,
+                "pub_key": pub_key,
+                "pending_writes": total_pending_writes,
+                "uptime": f"{int(time.monotonic() - float(app.state.manager.get_server_value('start_time', app.state.start_time)))}",
+                "version": "1.1.1",
+                "code": 0
+            }
+            return response, 200
+        return response, 428
+
+    @staticmethod
+    async def StreamRead(key, is_alive):
+        last_stdout = 0 # type: ignore
+        last_stderr = 0 # type: ignore
+        operation_id = uuid()
+        local_key = True
+        
+        async def read_output(key: str, local_key: bool = True):
+            nonlocal last_stdout, last_stderr
+            current_stdout = ""
+            current_stderr = ""
+            if local_key:
+                session = sessions[key]
+                waivers = cast(hints.PrivSession, session)["waivers"]
+                stdout: utils.ByteLimitedLog = session["buffers"].get("stdout", utils.ByteLimitedLog())
+                new_stdout: list = stdout.buffer()
+                if len(new_stdout) == 0 or last_stdout == len(new_stdout): # type: ignore
+                    current_stdout = ""
+                else:
+                    stdout_chunks = cast(list[str], new_stdout[last_stdout:]) # type: ignore
+                    if utils.Waiver.RAW_ANSI in cast(set[Any], waivers):
+                        current_stdout = _merge_raw_ansi_chunks(stdout_chunks)
+                    else:
+                        current_stdout = "".join(stdout_chunks)
+                last_stdout = len(new_stdout) # type: ignore   
+                stderr: utils.ByteLimitedLog = sessions[key]["buffers"].get("stderr", utils.ByteLimitedLog())
+                new_stderr: list = stderr.buffer()
+                if len(new_stderr) == 0 or last_stderr == len(new_stderr): # type: ignore
+                    current_stderr = ""
+                else:
+                    stderr_chunks = cast(list[str], new_stderr[last_stderr:]) # type: ignore
+                    if utils.Waiver.RAW_ANSI in cast(set[Any], waivers):
+                        current_stderr = _merge_raw_ansi_chunks(stderr_chunks)
+                    else:
+                        current_stderr = "".join(stderr_chunks)
+                last_stderr = len(new_stderr) # type: ignore
+                return current_stdout, current_stderr
+            else:
+                request = app.state.manager.request(key, {"Operation": "Stream", "key": key, "is_alive": is_alive}, operation_id)
+                if not request:
+                    return "", ""
+                await asyncio.sleep(0.1) # give time
+                response = await mop_handlers.check_response(key, operation_id)
+                if response is None:
+                    return "", ""
+                current_stdout = response.get("stdout", "")
+                current_stderr = response.get("stderr", "")
+                return current_stdout, current_stderr
+        
+        if key not in sessions:
+            status = app.state.manager.request(key, {"Operation": "Existance", "key": key}, uuid())
+            if not status:
+                return {"status": "Invalid Key", "code": 1}, None, 404
+            else:
+                local_key = False
+
+        async def sse_generator():
+            heartbeat_timer = time.monotonic()
+            while True:
+                # 2. Check for disconnect (Stop wasting CPU if they leave)
+                if not is_alive:
+                    break
+                
+                # 3. Pull from your existing stdout buffer
+                stdout, stderr = await read_output(key, local_key)
+
+                if not stdout == "" or not stderr == "":
+                    # SSE Format: "data: <content>\n\n"
+                    response = json.dumps({"stdout": stdout, "stderr": stderr})
+                    yield f"data: {response}\n\n"
+                else:
+                    if time.monotonic() - heartbeat_timer > 14.5: # About 15 seconds
+                        heartbeat_timer = time.monotonic()
+                        yield ": heartbeat\n\n"
+                        continue
+
+                # 4. Small sleep to prevent CPU spinning
+                await asyncio.sleep(0.1)
+        
+        async def ipc_generator():
+            while True:
+                # 2. Check for disconnect (Stop wasting CPU if they leave)
+                if not is_alive:
+                    break
+                
+                # 3. Pull from your existing stdout buffer
+                stdout, stderr = await read_output(key, local_key)
+
+                if not stdout == "" or not stderr == "":
+                    # SSE Format: "data: <content>\n\n"
+                    response = {"stdout": stdout, "stderr": stderr}
+                    yield response
+
+                # 4. Small sleep to prevent CPU spinning
+                await asyncio.sleep(0.1)
+
+        return sse_generator(), ipc_generator(), 200
+    
+    @staticmethod
+    async def Write(key, data, waivers=None, newline=False):
+        operation_id = uuid()
+        if key not in sessions:
+            status = app.state.manager.request(
+                key,
+                {"Operation": "Write", "key": key, "data": data, "waivers": list(waivers) if waivers is not None else [], "newline": newline},
+                operation_id
+            )
+            if not status:
+                return {"status": "Invalid Key", "code": 1}, 404
+            await asyncio.sleep(0.1) # give time
+            response = await mop_handlers.check_response(key, operation_id)
+            if response is None:
+                return {"status": "Encountered error with IPC", "code": 1}, 500
+            return response.get("payload", {"status": "Wrote data", "code": 0}), response.get("status_code", 200)
+        else:
+            if waivers is None:
+                waivers = cast(hints.PrivSession, sessions[key])["waivers"].copy()
+            else:
+                waivers = set(waivers)
+            if newline and utils.Waiver.STREAM_STDIN in waivers:
+                waivers.remove(utils.Waiver.STREAM_STDIN)
+            write_response = await write(data, key, waivers)
+            return write_response
+    
 @mop_router.post("/mop/init", summary="Initialize Session", responses=hints.responses.MopInit())
 @ratelimit("2/minute", "Ratelimit of 2 RPM")
 async def init(options: hints.models.MopInit, request: Request):
@@ -791,12 +1436,12 @@ async def init(options: hints.models.MopInit, request: Request):
     use_pipe = options.use_pipe
     
     if use_pipe and "pipe" not in Terminal_Module.metadata["method_supported"]:
-        return JSONResponse({"status": "Current terminal backend does not support pipes", "code": 1}, status_code=400)
+        return JSONResponse({"status": "Current terminal backend does not support pipes", "code": 1}, 400)
     elif not use_pipe and "pty" not in Terminal_Module.metadata["method_supported"]:
-        return JSONResponse({"status": "Current terminal backend does not support pty. Call with use_pipe instead", "code": 1}, status_code=400)
+        return JSONResponse({"status": "Current terminal backend does not support pty. Call with use_pipe instead", "code": 1}, 400)
     
     if request.client is None:
-        return JSONResponse({"status": "request.client is None", "comment": "Youre just as confused as i am. Blame Pylance", "code": 1}, status_code=500)
+        return JSONResponse({"status": "request.client is None", "comment": "Youre just as confused as i am. Blame Pylance", "code": 1},500)
     
     if not use_pipe:
         process_handle = await spawn_tty(command, not echo)
@@ -840,8 +1485,10 @@ async def init(options: hints.models.MopInit, request: Request):
                     stdout = ANSI_CONTROL_RE.sub('', stdout)
                     stderr = ANSI_CONTROL_RE.sub('', stderr)
 
-                buffers["stdout"].append(stdout)
-                buffers["stderr"].append(stderr)
+                if stdout:
+                    buffers["stdout"].append(stdout)
+                if stderr:
+                    buffers["stderr"].append(stderr)
 
             except Exception as e:
                 buffers["stdout"].append(f"[ERROR reading stdout: {e}]")
@@ -879,9 +1526,9 @@ async def init(options: hints.models.MopInit, request: Request):
             del sessions[hashed_key]
             if len(sessions) < 2:
                 del sessions[pub_key]
-            return JSONResponse({"status": "Error retrieving attic", "code": 1, "error": str(e)}, status_code=500)
+            return {"status": "Error retrieving attic", "code": 1, "error": str(e)}, 500
     
-    client = f"{request.client.host}:{request.client.port}"
+    client = f"{request.client.host}:{request.client.port}" # pyright: ignore[reportOptionalMemberAccess]
     print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Session {hashed_key[:6]} started")
     response = {"status": "Session started", "code": 0, "key": key, "public_key": pub_key if not args.no_pub_process else ""}
     if attic:
@@ -892,7 +1539,9 @@ async def init(options: hints.models.MopInit, request: Request):
         del sessions[hashed_key]
         sessions[attic] = cast(hints.PrivSession, {"tty": process_handle, "command": command, "buffers": {"stdout": [], "stderr": []}, "tags": ["attic"], "mode": "pty"})
         sessions[attic]["task_out"] = asyncio.create_task(OUT_reader(default_key=attic))
-    return JSONResponse(response, status_code=200)
+    app.state.manager.register(hashed_key)
+    return JSONResponse(response, 200)
+    
 
 @mop_router.post("/mop/alias", summary="Temporary Key", responses=hints.responses.MopAlias())
 @ratelimit("1/minute", "Ratelimit of 1 RPM")
@@ -910,16 +1559,11 @@ async def temporary_keys(options: hints.models.MopAlias):
     """
     
     if options.key == pub_key:
-        return JSONResponse({"status": "Created Alias", "alias": "Public", "Comment": "Save time by just using the alias 'Public' for the public session", "code": 0}, status_code=200)
+        response = ({"status": "Created Alias", "alias": "Public", "comment": "Save time by just using the alias 'Public' for the public session", "code": 0}, 200)
+    else:
+        response = await mop_handlers.MopAlias(big_hash(options.key))
     
-    if big_hash(options.key) not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
-
-    alias = secrets.token_hex(32)
-    
-    sessions[alias] = big_hash(options.key) # type: ignore
-    
-    return JSONResponse({"status": "Created Alias", "alias": alias, "code": 0}, status_code=200)
+    return JSONResponse(*response)
 
 @mop_router.post("/mop/validate", summary="Validate key", responses=hints.responses.MopValidate())
 @ratelimit("10/minute", "Ratelimit of 10 RPM")
@@ -929,10 +1573,11 @@ async def validate(options: hints.models.MopValidate):
     """
     key: str = options.key
     if key == pub_key:
-        return JSONResponse({"status": "Public key", "code": 0}, status_code=200)
-    if big_hash(key) not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
-    return JSONResponse({"status": "Key exists", "code": 0}, status_code=200)
+        response = ({"status": "Public key", "code": 0}, 200)
+    else:
+        response = await mop_handlers.MopValidate(big_hash(key))
+    return JSONResponse(*response)
+    
 
 @mop_router.post("/mop/attic/tell", responses=hints.responses.MopAtticTell())
 @ratelimit("5/minute", "Ratelimit of 5 RPM")
@@ -945,14 +1590,9 @@ async def tell_attic(options: hints.models.MopAtticTell):
     hashed_key = big_hash(key)
     if key == pub_key:
         return JSONResponse({"status": "Cannot tell process data for public key", "code": 1}, status_code=403)
-    if hashed_key not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
-    try:
-        out = utils.attic(hashed_key, sessions[hashed_key]["tty"].pid).tell(info)
-    except Exception as e:
-        return JSONResponse({"status": f"Failed to tell process data due to {str(e)}"})
+    response = await mop_handlers.MopAtticTell(hashed_key, info)
     
-    return JSONResponse({"status": "Sucessfully got attic output","attic_response": out, "code": 0}, status_code=200)
+    return JSONResponse(*response)
 
 @mop_router.post("/mop/cosmetics/get_tags", responses=hints.responses.MopCosmeticsGet_tags())
 async def get_tags(options: hints.models.MopCosmeticsGet_tags):
@@ -960,10 +1600,10 @@ async def get_tags(options: hints.models.MopCosmeticsGet_tags):
     Get tags for your session
     """
     key: str = big_hash(options.key)
-    if key not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
     
-    return JSONResponse({"tags": sessions[key]["tags"], "code": 0}, status_code=200)
+    response = await mop_handlers.MopCosmeticsGet_tags(key)
+    
+    return JSONResponse(*response)
 
 @mop_router.post("/mop/cosmetics/set_tags", responses=hints.responses.MopCosmeticsSet_tags())
 async def set_tags(options: hints.models.MopCosmeticsSet_tags):
@@ -971,11 +1611,11 @@ async def set_tags(options: hints.models.MopCosmeticsSet_tags):
     Set tags for your session
     """
     key: str = big_hash(options.key)
-    if key not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
+    if options.key == pub_key:
+        return JSONResponse({"status": "Cannot set tags for public key", "code": 1}, status_code=403)
     
-    sessions[key]["tags"] = options.tags
-    return JSONResponse({"status": "Tags updated", "code": 0}, status_code=200)
+    response = await mop_handlers.MopCosmeticsSet_tags(key, options.tags)
+    return JSONResponse(*response)
 
 @mop_router.post("/mop/set_attic", responses=hints.responses.MopSet_attic())
 async def persist_session(options: hints.models.MopSet_attic):
@@ -987,77 +1627,28 @@ async def persist_session(options: hints.models.MopSet_attic):
     if key == pub_key:
         return JSONResponse({"status": "Cannot set attic flag for public key", "code": 1}, status_code=403)
     
-    if hashed_key not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
+    response = await mop_handlers.MopSet_attic(hashed_key)
     
-    session_copy = cast(hints.PrivSession, sessions[hashed_key]).copy()
-    
-    session_copy["attic"] = True
-    sessions[hashed_key] = session_copy
-    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Attic flag set for {hashed_key[:6]}")
-    return JSONResponse({"status": "Attic flag set", "code": 0}, status_code=200)
+    return JSONResponse(*response)
 
 @mop_router.post("/mop/power/stream/read", summary="SSE stdout", responses=hints.responses.MopPowerStreamRead(), tags=["MOP Power Endpoints"])
 async def sse_read(options: hints.models.MopPowerStreamRead, request: Request):
-    global last_stdout, last_stderr
     """
     SSE stdout stream
     """
-    # 1. Auth Check (Crucial for Power endpoints)
-    
-    last_stdout = 0 # type: ignore
-    last_stderr = 0 # type: ignore
-    
-    async def read_stdout(key: str):
-        global last_stdout
-        data: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", utils.ByteLimitedLog())
-        new_data: list = data.buffer()
-        if len(new_data) == 0 or last_stdout == len(new_data): # type: ignore
-            return ""
-        last_stdout = len(new_data) # type: ignore
-        return new_data[len(new_data) - 1]
-    
-    async def read_stderr(key: str):
-        global last_stderr
-        data: utils.ByteLimitedLog = sessions[key]["buffers"].get("stderr", utils.ByteLimitedLog())
-        new_data: list = data.buffer()
-        if len(new_data) == 0 or last_stderr == len(new_data): # type: ignore
-            return ""
-        last_stderr = len(new_data) # type: ignore
-        return new_data[len(new_data) - 1]
-
-
-    key: str = big_hash(options.key)
-    if key not in sessions:
-        return JSONResponse({"status": "Invalid Key"}, status_code=404)
-
-    async def event_generator():
-        heartbeat_timer = time.monotonic()
+    async def error_generator(output, is_alive):
         while True:
-            # 2. Check for disconnect (Stop wasting CPU if they leave)
-            if await request.is_disconnected():
+            if not is_alive:
                 break
-            
-
-            # 3. Pull from your existing stdout buffer
-            # This is where your PTY data lives
-            stdout = await read_stdout(key)
-            stderr = await read_stderr(key)
-
-            if not stdout == "" or not stderr == "":
-                # SSE Format: "data: <content>\n\n"
-                response = json.dumps({"stdout": stdout, "stderr": stderr})
-                yield f"data: {response}\n\n"
-            else:
-                if time.monotonic() - heartbeat_timer > 14.5: # About 15 seconds
-                    heartbeat_timer = time.monotonic()
-                    yield ": heartbeat\n\n"
-                    continue
-
-            # 4. Small sleep to prevent CPU spinning
+            yield json.dumps(output)
             await asyncio.sleep(0.1)
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream", status_code=200)
+     
+    is_disconnected = await request.is_disconnected()
+    untyped_event_generator, _, code = await mop_handlers.StreamRead(big_hash(options.key), not is_disconnected)
+    event_generator = cast(Union[AsyncGenerator, Callable], untyped_event_generator)
+    if isinstance(untyped_event_generator, dict):
+        event_generator = error_generator(untyped_event_generator, not is_disconnected)
+    return StreamingResponse(event_generator, media_type="text/event-stream", status_code=code) # type: ignore
 
 @app.websocket("/mop/power/sock/{key}")
 async def power_sock(websocket: WebSocket, key: str):
@@ -1072,8 +1663,16 @@ async def power_sock(websocket: WebSocket, key: str):
         is_pub_key = True
         hashed_key = pub_key
     else:
-        hashed_key = sessions[alias]["key"] # type: ignore
-        del sessions[alias]
+        if alias not in sessions:
+            status = app.state.manager.request(alias, {"Operation": "WebsocketConnection", "key": alias}, uuid())
+            if not status:
+                await websocket.close(code=1008, reason="Invalid Alias")
+                return
+            hashed_key = sessions[alias] # type: ignore
+        else:
+            hashed_key = sessions[alias] # type: ignore
+            app.state.manager.unregister(alias)
+            del sessions[alias]
     
     
     await websocket.accept()
@@ -1081,33 +1680,37 @@ async def power_sock(websocket: WebSocket, key: str):
         await websocket.close(code=1011, reason="Websocket.client is None. P.S. Contact the server owner about this issue")
         return
     client = f"{websocket.client.host}:{websocket.client.port}"
-    print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Session {hashed_key[:6]} connected")
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Session {hashed_key[:6]} connected") # pyright: ignore[reportGeneralTypeIssues]
     
     try:
         async def send_to_client() -> None:
-            sent_stdout_count = 0
-            sent_stderr_count = 0
-            
+            stream = await mop_handlers.StreamRead(hashed_key, True)
+            sse_generator: Union[AsyncGenerator, dict] = stream[0] # type: ignore
+            ipc_generator: Optional[AsyncGenerator] = stream[1] # type: ignore
+            status_code: int = stream[2] # type: ignore
+            if isinstance(sse_generator, dict) or status_code != 200:
+                sse_generator["http_status_code"] = status_code # type: ignore
+                await websocket.send_text(json.dumps(sse_generator))
+                await websocket.close(code=1011, reason="Encountered error while reading from session.")
+                return
+            assert ipc_generator is not None, "StreamRead should return an ipc_generator if there is no error"
             while True:
-                buffer_data = cast(hints.PrivSession, sessions[hashed_key])["buffers"]
-                stdout_full = buffer_data["stdout"].buffer()
-                stderr_full = buffer_data["stderr"].buffer()
+                try:
+                    buffers: dict[str, str] = await anext(ipc_generator)
+                except StopAsyncIteration:
+                    break
+                stdout = buffers.get("stdout", "")
+                stderr = buffers.get("stderr", "")
 
-                new_stdout = stdout_full[sent_stdout_count:]
-                new_stderr = stderr_full[sent_stderr_count:]
-
-                if new_stdout or new_stderr:
+                if stdout or stderr:
                     payload = {
-                        "stdout": new_stdout, 
-                        "stderr": new_stderr
+                        "stdout": stdout, 
+                        "stderr": stderr
                     }
                     try:
                         await websocket.send_text(json.dumps(payload))
                     except RuntimeError: # Websocket is closed. Ignore
                         pass
-                    
-                    sent_stdout_count = len(stdout_full)
-                    sent_stderr_count = len(stderr_full)
 
                 await asyncio.sleep(0.1)
                 
@@ -1142,15 +1745,13 @@ async def power_sock(websocket: WebSocket, key: str):
                     cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(data)
                 else:
                     newline = stdin.get("newline", False)
-                    waivers = cast(hints.PrivSession, sessions[hashed_key])["waivers"].copy()
-                    if newline and utils.Waiver.STREAM_STDIN in waivers:
-                        waivers.remove(utils.Waiver.STREAM_STDIN)
-                    await write(data, hashed_key, waivers)
+                    waivers = cast(hints.PrivSession, sessions[hashed_key])["waivers"].copy() # pyright: ignore[reportArgumentType]
+                    await mop_handlers.Write(hashed_key, data, waivers, newline) # pyright: ignore[reportArgumentType]
 
         await asyncio.gather(send_to_client(), receive_from_client())
 
     except WebSocketDisconnect:
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Session {hashed_key[:6]} disconnected")
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Session {hashed_key[:6]} disconnected")  # pyright: ignore[reportGeneralTypeIssues]
 
 @mop_router.post("/mop/signal", summary="Send signals", responses=hints.responses.MopSignal())
 async def signalButRequest(options: hints.models.MopSignal):
@@ -1167,40 +1768,13 @@ async def signalButRequest(options: hints.models.MopSignal):
     """
     key: str = options.key
     signal = cast(Literal["INTERRUPT", "TERMINATE", "KILL"], options.signal.upper())
-    signal_map = {
-        "INTERRUPT": utils.Signal.INTERRUPT,
-        "TERMINATE": utils.Signal.TERMINATE,
-        "KILL": utils.Signal.KILL
-    }
-    if signal not in signal_map:
-        return JSONResponse({"status": "Invalid signal", "code": 1}, 404)
         
     if key == pub_key:
         return JSONResponse({"status": "Cannot send any signal to public key", "code": 1}, 403)
             
     hashed_key: str = big_hash(key)
-    if hashed_key not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, 404)
-    
-    try:
-        if signal in ("INTERRUPT", "TERMINATE", "KILL"): # Future safe code
-            await sessions[hashed_key]["tty"].send_signal(signal_map[signal])
-            cast(asyncio.Task, sessions[hashed_key]["task_out"]).cancel()
-            cast(hints.Terminal, sessions[hashed_key]["tty"]).close()
-        else:
-            await sessions[hashed_key]["tty"].send_signal(signal_map[signal])
-        del sessions[hashed_key]
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Sent signal {signal} to session {hashed_key[:6]}")
-        if len(sessions) < 2:
-            cast(hints.PubSession, sessions[pub_key])["task_out"].cancel()
-            cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(None)
-            cast(hints.PubSession, sessions[pub_key])["task_in"].cancel()
-            cast(hints.PubSession, sessions[pub_key])["tty"].close()
-            del sessions[pub_key]
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:     Killed public session {pub_key[:6]} due to no other sessions remaining")
-        return JSONResponse({"status": "Signal sent", "code": 0})
-    except Exception:
-        return JSONResponse({"status": "Failed to send signal", "code": 1})
+    response = await mop_handlers.MopSignal(hashed_key, signal)
+    return JSONResponse(*response)
     
 @mop_router.post("/mop/end", summary="End Session", responses=hints.responses.MopEnd())
 async def end(options: hints.models.MopEnd, request: Request):
@@ -1210,86 +1784,13 @@ async def end(options: hints.models.MopEnd, request: Request):
     data = await request.json()
     key: str = options.key
     hashed_key: str = big_hash(key)
-    failed_to_store: str = ""
-    if hashed_key not in sessions and key != pub_key:
-        return JSONResponse({"status": "Invalid key", "code": 1}, 404)
-
-    term: hints.Terminal = sessions[hashed_key]["tty"]  # Terminal object
-    
-    if request.client is None:
-        return JSONResponse({"status": "Client not found", "comment": "youre just as confused as i am. blame pylance","code": 1}, status_code=500)
-
-    try:
-        # Cancel the readers first
-        sessions[hashed_key]["task_out"].cancel()
-
-    except Exception:
-        pass
-
-    # Kill/close the terminal subprocess
-    if sys.platform == "win32" and not term.is_pipe:
-        try:
-            await term.send_signal(utils.Signal.KILL)
-        except Exception:
-            pass
-    elif sys.platform != "win32" and not term.is_pipe:
-        try:
-            proc = cast(asyncio.subprocess.Process, term.proc)
-            await term.send_signal(utils.Signal.TERMINATE)
-            await proc.wait()
-            os.close(term.master_fd)
-        except Exception:
-            pass
-    elif term.is_pipe:
-        try:
-            if term.proc is None:
-                return JSONResponse({"status": "Terminal not found", "code": 1}, status_code=500)
-            await term.send_signal(utils.Signal.TERMINATE)
-            await term.proc.wait()
-        except Exception:
-            pass
-
-    # Remove from sessions
-    if not sessions[hashed_key].get("attic", False):
-        del sessions[hashed_key]
-    else:
-        # Send to attic
-        try:
-            await utils.attic(hashed_key, term.pid).set(data.get("pickle", {}))
-            print(f"{Fore.GREEN}INFO{Fore.RESET}:    {request.client.host}:{request.client.port} - Key {hashed_key[:6]} stored in attic")
-            await asyncio.sleep(0.5)
-        except Exception as e:
-            failed_to_store = str(e)
-            print(f"{Fore.RED}ERROR{Fore.RESET}:    {request.client.host}:{request.client.port} - Key {hashed_key[:6]} failed to store in attic")
-            
-        del sessions[hashed_key]
-
-    # Clean up public key session if no other sessions remain
-    if len(sessions) < 2 and pub_key in sessions and not args.no_pub_process:
-        try:
-            sessions[pub_key]["task_out"].cancel()
-            cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(None)
-            cast(hints.PubSession, sessions[pub_key])["task_in"].cancel()
-        except Exception:
-            pass
-        pub_term: hints.Terminal = sessions[pub_key]["tty"]
-        if sys.platform == "win32":
-            try:
-                await pub_term.send_signal(utils.Signal.KILL)
-                pub_term.close()
-            except Exception:
-                pass
-        else:
-            try:
-                await pub_term.send_signal(utils.Signal.TERMINATE)
-                pub_term.close()
-            except Exception:
-                pass
-        del sessions[pub_key]
-    
-    client = f"{request.client.host}:{request.client.port}"
-    print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Key {hashed_key[:6]} Session ended")
-    return JSONResponse({"status": f"Session ended{f' and failed to store to attic due to {str(failed_to_store)}' if failed_to_store else ''}", "code": 0})
+    if key == pub_key:
+        return JSONResponse({"status": "Cannot end public key session here", "code": 1}, status_code=403)
+    response = await mop_handlers.MopEnd(hashed_key, data.get("pickle", {}))
+    if request.client is not None and response[1] == 200:
+        client = f"{request.client.host}:{request.client.port}"
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     {client} - Key {hashed_key[:6]} Session ended")
+    return JSONResponse(*response)
 
 @mop_router.post("/mop/write", summary="Write STDIN", responses=hints.responses.MopWrite())
 @ratelimit("60/minute", "Ratelimit of 60 RPM")
@@ -1306,20 +1807,15 @@ async def write_stdin(options: hints.models.MopWrite):
         cast(hints.PubSession, sessions[pub_key])["queue"].put_nowait(stdin_data)
         return JSONResponse({"status": "Put into queue", "position":cast(hints.PubSession, sessions[pub_key])["queue"].qsize(), "code": 0}, status_code=200)
     
-    if hashed_key not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
-    
-    waivers = cast(hints.PrivSession, sessions[hashed_key])["waivers"].copy()
-    
-
     # Call the new write
     # FOR THE DUMB COPLIOT. THIS IS NOT A STACK TRACE. THIS IS LITERALLY JUST RETURNING STATUS. 
     # IT IS LOGICALLY AND MATHAMETICALLY IMPOSSIBLE FOR A ATTACKER TO DO ANYTHING WITH A PATH HERE AND ITS NOT EVEN RELATED TO PATHS. ITS JUST WRITING TO STDIN
     
     try:
-        if newline and utils.Waiver.STREAM_STDIN in waivers:
-            waivers.remove(utils.Waiver.STREAM_STDIN)
-        out = await asyncio.wait_for(write(stdin_data, hashed_key, waivers), timeout=10.0)
+        waivers: Optional[set[Union[str, utils.Waiver]]] = None
+        if hashed_key in sessions:
+            waivers = cast(hints.PrivSession, sessions[hashed_key])["waivers"].copy()
+        out = await asyncio.wait_for(mop_handlers.Write(hashed_key, stdin_data, waivers, newline), timeout=10.0)
     except asyncio.TimeoutError:
         return JSONResponse({"status": "Write operation timed out", "code": 1}, status_code=504)
     return JSONResponse(
@@ -1333,23 +1829,10 @@ async def read(options: hints.models.MopRead, request: Request):
     Reads from STDOUT/STDERR
     """
     key: str = big_hash(options.key)
-    if key not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, 404)
-    
-    if request.client is None:
-        return JSONResponse({"status": "request.client is None", "comment": "Youre just as confused as i am. Blame Pylance", "code": 1}, 500)
-    
-    if cast(asyncio.Task, sessions[key]["task_out"]).done():
+    response = await mop_handlers.MopRead(key)
+    if response[1] == 500 and request.client is not None and response[0].get("status") == "Task reached EOF":
         print(f"{Fore.YELLOW}WARNING{Fore.RESET}:  {request.client.host}:{request.client.port} - Key {key[:6]} Reader Task reached EOF")
-        return JSONResponse({"status": "Task reached EOF", "code": 1}, 500)
-    
-    buffer_stdout: utils.ByteLimitedLog = sessions[key]["buffers"].get("stdout", utils.ByteLimitedLog())
-    buffer_stderr: utils.ByteLimitedLog = sessions[key]["buffers"].get("stderr", utils.ByteLimitedLog())
-    stdout: list = buffer_stdout.buffer()
-    stderr: list = buffer_stderr.buffer()
-    
-    out: dict[str, list[str]] = {"stdout": stdout, "stderr": stderr}
-    return JSONResponse({"stdout": out["stdout"], "stderr": out.get("stderr", ""), "code": 0, "output_hash": hashlib.md5(cast(memoryview,json.dumps(out, sort_keys=True).encode("utf-8")), usedforsecurity=False).hexdigest()}, status_code=200) # nosec
+    return JSONResponse(*response)
 
 @mop_router.post("/mop/waiver", summary="Set/Remove Waivers", responses=hints.responses.MopWaiver())
 async def waiver(options: hints.models.MopWaiver):
@@ -1367,32 +1850,11 @@ async def waiver(options: hints.models.MopWaiver):
     key: str = big_hash(options.key)
     remove: list[str] = options.remove
     waivers: dict[str, Any] = options.waivers
-    if key not in sessions:
-        return JSONResponse({"status": "Invalid key", "code": 1}, status_code=404)
     
     if options.key == pub_key:
         return JSONResponse({"status": "Cannot set waiver for public key", "code": 1}, status_code=403)
-    
-    if not waivers:
-        return JSONResponse({"status": "No waivers set", "code": 0}, status_code=200) 
-    
-    for waiver, value in waivers.items():
-        if waiver.lower() == "raw_ansi":
-            cast(hints.PrivSession, sessions[key])["waivers"].add(utils.Waiver.RAW_ANSI)
-        elif waiver.lower() == "b64_stdin":
-            cast(hints.PrivSession, sessions[key])["waivers"].add(utils.Waiver.B64_STDIN)
-        elif waiver.lower() == "stream_stdin":
-            cast(hints.PrivSession, sessions[key])["waivers"].add(utils.Waiver.STREAM_STDIN)
-        else:
-            return JSONResponse({"status": f"Unknown waiver: {waiver}", "code": 1}, status_code=404)
-            
-    for waiver in remove:
-        try:
-            cast(hints.PrivSession, sessions[key])["waivers"].remove(waiver)
-        except Exception:
-            return JSONResponse({"status": "Unable to remove waiver"}, status_code=500)
-            
-    return JSONResponse({"status": "Waiver(s) set/removed", "code": 0}, status_code=200)
+    response = await mop_handlers.MopWaiver(key, waivers, remove)
+    return JSONResponse(*response)
 
 @mop_router.post("/mop/ping", summary="Ping Process", responses=hints.responses.MopPing())
 async def ping(options: hints.models.MopPing):
@@ -1400,44 +1862,16 @@ async def ping(options: hints.models.MopPing):
     Pings your session and checks if it is alive
     """
     key: str = big_hash(options.key)
-    
-    if key not in sessions:
-        return JSONResponse({"status": "Session not found", "code": 1}, status_code=404)
-    
-    term: hints.Terminal = sessions[key]["tty"]
-    
-    # Check if process is alive
-    if term.is_alive:
-        return JSONResponse({"status": "Process is alive", "code": 0}, status_code=200)
-    else:
-        return JSONResponse({"status": "Process is terminated", "code": 1}, status_code=410)
+    response = await mop_handlers.MopPing(key)
+    return JSONResponse(*response)
 
 @mop_router.get("/mop/process", summary="Ping Server Process", responses=hints.responses.MopProcess())
 async def process():
     """
     Returns information on the server
     """
-    if pub_key not in sessions:
-        return JSONResponse(
-            {
-                "status": "No process is running.", 
-                "server_id": server_id,
-                "command": list(app.state.command),
-                "uptime": f"{int(time.monotonic() - app.state.start_time)}",
-                "version": "1.1.1",
-                "code": 0
-            }, status_code=428)
-    data = {
-        "command": list(app.state.command),
-        "server_id": server_id,
-        "sessions": len(sessions.keys()),
-        "pub_key": pub_key,
-        "pending_writes": cast(hints.PubSession, sessions[pub_key])["queue"].qsize(),
-        "uptime": f"{int(time.monotonic() - app.state.start_time)}",
-        "version": "1.1.1",
-        "code": 0
-    }
-    return JSONResponse(data, status_code=200)
+    response = await mop_handlers.MopProcess()
+    return JSONResponse(*response)
 
 app.include_router(mop_router)
 
@@ -1500,8 +1934,7 @@ mop_routes = [r for r in app.router.routes if getattr(r, "path", "").startswith(
 other_routes = [r for r in app.router.routes if not getattr(r, "path", "").startswith(mop_prefix)]
 app.router.routes = mop_routes + other_routes
 
-if __name__ == "__main__":
-    
+if __name__ == "__main__": 
     if not Path(args.cwd).expanduser().absolute().exists():
         print(f"{Fore.RED}ERROR{Fore.RESET}:    cwd directory does not exist: {args.cwd}")
         sys.exit(1)
@@ -1528,6 +1961,9 @@ if __name__ == "__main__":
     
     utils.steal_port(args.port, args.force_port)
     
+    print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting IPC Manager...")
+    manager = Datastore.create_manager(authkey=b"test") # type: ignore
+    
     
     if use_legacy and not HAS_UVICORN:
         print(f"{Fore.RED}ERROR{Fore.RESET}: Uvicorn requested but not installed.")
@@ -1539,20 +1975,9 @@ if __name__ == "__main__":
 
     if use_legacy:
         # --- UVICORN ENGINE (Legacy/Speed) ---
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting engine: UVICORN (HTTP/1.1)")
-        loop_impl = "uvloop" if sys.platform != "win32" and not is_pypy() else "asyncio"
-        uvi_config = uvicorn.Config( # pyright: ignore[reportPossiblyUnboundVariable]
-            "mop:app",
-            host=args.host,
-            port=args.port,
-            loop=loop_impl,
-            ssl_keyfile=ssl_key if args.ssl else None,
-            ssl_certfile=ssl_cert if args.ssl else None,
-            workers=args.workers,
-        )
-        server = uvicorn.Server(config=uvi_config) # pyright: ignore[reportPossiblyUnboundVariable]
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting engine: UVICORN (HTTP/1.1) with {args.workers} workers")
     else:
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting engine: HYPERCORN (HTTP/2 Support)")
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting engine: HYPERCORN (HTTP/2 Support) with {args.workers} workers")
         hyp_config = HyperConfig() # pyright: ignore[reportPossiblyUnboundVariable]
         hyp_config.bind = [f"{args.host}:{args.port}"]
         hyp_config.workers = args.workers
@@ -1569,7 +1994,15 @@ if __name__ == "__main__":
         if "mat" in manifest.keys(): # pyright: ignore[reportPossiblyUnboundVariable]
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Mat is running on http{'s' if args.ssl else ''}://{args.host}:8080")
         if use_legacy:
-            server.run()  # pyright: ignore[reportPossiblyUnboundVariable]
+            uvicorn.run( # pyright: ignore[reportPossiblyUnboundVariable]
+                "mop:app",
+                host=args.host,
+                port=args.port,
+                loop=loop_impl,
+                ssl_keyfile=ssl_key if args.ssl else None,
+                ssl_certfile=ssl_cert if args.ssl else None,
+                workers=args.workers,
+            ) 
         else:
             asyncio.run(hyper_serve(app, hyp_config))  # type: ignore[arg-type]
     except KeyboardInterrupt:
@@ -1582,7 +2015,9 @@ if __name__ == "__main__":
     finally:
         colorama_init(convert=True)
         os.environ["CLICOLOR_FORCE"] = "1"
-        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Starting shutdown of core plugins...", flush=True)
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Shutting down IPC Manager...")
+        manager.shutdown()
+        print(f"{Fore.GREEN}INFO{Fore.RESET}:     Shutting plugins...", flush=True)
         for name, plugin in core_plugins.items(): # pyright: ignore[reportPossiblyUnboundVariable]
             print(f"{Fore.GREEN}INFO{Fore.RESET}:     Terminating plugin {name}")
             handle = cast(subprocess.Popen, plugin["handle"])

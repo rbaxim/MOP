@@ -2,9 +2,10 @@ asyncapi: 3.1.0
 
 info:
   title: MOP WebSocket Terminal API
-  version: 1.0.0
+  version: 1.1.1
   description: >
     Interactive PTY stream over WebSocket.
+    This is the primary transport used by the web terminal UI.
 
     Flow:
       1. Obtain alias via POST /mop/alias
@@ -61,6 +62,9 @@ operations:
       Encoding:
         - UTF-8 string
         - URL-safe Base64 string
+      Notes:
+        - Browser client sends Base64 URL-safe payloads by default
+        - Server may reject malformed JSON or oversized bursts
 
       Newline Behavior:
 
@@ -119,6 +123,7 @@ operations:
             UTF-8 or URL-safe Base64
         - Contains ONLY newly generated output
         - Full buffer is NOT retransmitted
+        - Heartbeats are sent as websocket comments/events when idle
 
     messages:
       - $ref: '#/channels/powerSocket/messages/TerminalOutput'
@@ -138,8 +143,9 @@ components:
             type: string
             description: >
               Data written directly to PTY stdin.
-              Must NOT contain newline characters.
+              Must NOT contain newline characters. (Unless program requires it)
               UTF-8 or URL-safe Base64.
+            pattern: '^[^\r\n]*$'
           newline:
             type: boolean
             description: >

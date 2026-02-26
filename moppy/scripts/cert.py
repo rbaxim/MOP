@@ -1,8 +1,8 @@
 """
-proof that i own mop
+proof i own mop
 """
 from cryptography import x509 # pyright: ignore[reportMissingImports] 
-from cryptography.x509.oid import NameOID # pyright: ignore[reportMissingImports] 
+from cryptography.x509.oid import NameOID # pyright: ignore[reportAttributeAccessIssue, reportMissingImports] 
 from cryptography.hazmat.primitives import hashes, serialization # pyright: ignore[reportMissingImports]
 from cryptography.hazmat.primitives.asymmetric import rsa # pyright: ignore[reportMissingImports]
 from datetime import datetime, timedelta, timezone

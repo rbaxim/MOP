@@ -31,7 +31,6 @@ dependencies = [
     "uvicorn==0.40.0",
     "hypercorn==0.18.0",
     "starlette==0.52.1",
-    "pydantic==2.12.5",
     "slowapi==0.1.9",
 
     # Networking & Async IO

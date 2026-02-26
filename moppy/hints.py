@@ -2,7 +2,7 @@
 Just for the type checker to shut up
 """
 from __future__ import annotations
-from typing import Protocol, Literal, TypedDict, Optional, Any, Union, TypeAlias, TYPE_CHECKING, cast, Annotated
+from typing import Protocol, Literal, TypedDict, Optional, Any, Union, TypeAlias, TYPE_CHECKING, cast, Annotated, Tuple, AsyncGenerator
 import asyncio
 from enum import Enum, auto
 import subprocess
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     else:
         import fcntl # noqa: F401
         import pty as unixpty # noqa: F401
+    import moppy.backends.Datastore.default as datastore_types
     
 class Terminal: # Mypy. its just typing
     def __init__(self, proc: Optional[asyncio.subprocess.Process] = None, master_fd: Optional[int]=None, pty_obj: Optional[Union['winpty.PTY', "conpty.ConPTYInstance"]]=None, use_pipes: bool = False): ... # type: ignore[name-defined, valid-type]
@@ -50,6 +51,34 @@ class Terminal: # Mypy. its just typing
     
     @property
     def is_alive(self) -> bool: ... # type: ignore
+    
+class Datastore:
+    @staticmethod
+    def create_manager(port=50000) -> datastore_types.Manager: ... # type: ignore
+
+    def __init__(self, port) -> None: ...
+    
+    def register(self, key) -> None: ...
+    
+    def unregister(self, key) -> None: ...
+        
+    def _get_terminal(self, key) -> Union[Tuple[None, None], Tuple[str, str]]: ... # type: ignore
+    
+    def request(self, key: str, payload: dict, id: str): ...
+    
+    def check_requests(self) -> Optional[dict]: ...
+        
+    def response(self, source: int, key: str, payload: dict, id: str) -> None: ...
+        
+    def check_response(self, key: str, id: str) -> Optional[dict]: ...
+    
+    def cleanup(self) -> None: ...
+
+    def set_server_value(self, key, value) -> None: ...
+
+    def get_server_value(self, key, default=None): ...
+
+    def get_server_data(self) -> dict: ... # type: ignore
 
 
 class Signal(Enum):
@@ -100,7 +129,7 @@ class Plugin(TypedDict):
     
 responses_type: TypeAlias = dict[int | str, dict[str, Any]]
     
-class models():
+class models:
     class MopInit(BaseModel):
         echo: bool = Field(False, description="Decides whether MOP should allow the PTY to echo output")
         attic: Annotated[
@@ -168,7 +197,7 @@ class models():
         key: str = Field(..., description="Key to ping")
         
         
-class responses():
+class responses:
     status_code_list: dict[int, str] = {
         504: "Gateway Timeout",
         500: "Internal Server Error",
@@ -269,6 +298,7 @@ class responses():
     @staticmethod
     def MopCosmeticsSet_tags() -> responses_type:
         response: responses_type = {
+            **responses.response_template(403, example={"status": "Cannot set tags for public key", "code": 1}),
             **responses.response_template(404, example={"status": "Invalid key", "code": 1}),
             **responses.response_template(200, example={"status": "Tags updated", "code": 0})
         }
@@ -369,3 +399,8 @@ class responses():
 Plugin_Manifest: TypeAlias = dict[str, Plugin]
 
 Session_storage: TypeAlias = dict[str, Union[PrivSession, PubSession]]
+
+class PowerEndpointEntry(TypedDict):
+    output: AsyncGenerator
+
+Power_storage: TypeAlias = dict[str, PowerEndpointEntry]

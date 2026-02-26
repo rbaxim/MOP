@@ -22,13 +22,13 @@ from typing import cast, TYPE_CHECKING
 import moppy.hints as hints
 from collections import defaultdict
 if TYPE_CHECKING:
-    from psutil._common import addr # pyright: ignore[reportMissingModuleSource, reportMissingImports]  # noqa: E402
+    from psutil._common import addr # pyright: ignore[reportAttributeAccessIssue, reportMissingModuleSource, reportMissingImports]  # noqa: E402
 from colorama import Fore # type: ignore
 
 def moppy_path():
     if Path("./moppy").exists():
-        os.environ["MOPPY_PATH"] = str(Path("./moppy").absolute())
-        return True, Path("./moppy").absolute()
+        os.environ["MOPPY_PATH"] = str(Path("./moppy").resolve())
+        return True, Path("./moppy").resolve()
     else:
         moppy_path = os.environ.get("MOPPY_PATH", None)
         if moppy_path is None:
@@ -36,7 +36,7 @@ def moppy_path():
             sys.exit(1)
         
         if Path(moppy_path).exists() and Path(moppy_path).is_dir():
-            return True, Path(moppy_path).absolute()
+            return True, Path(moppy_path).resolve()
         elif Path(moppy_path).exists() and Path(moppy_path).is_file():
             print(f"[ERROR] MOPPY_PATH environment variable points to a file: {moppy_path}")
             sys.exit(1)

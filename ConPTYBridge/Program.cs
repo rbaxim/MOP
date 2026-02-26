@@ -4,37 +4,45 @@
 // See LICENSE file in the project root for details
 using System;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
 namespace Moppy.ConPTY
 {
-    public class ConPTYInstance : IDisposable
+    public sealed class ConPTYInstance : IAsyncDisposable
     {
-        // --- 1. Constants & Structs (The "Scary" definitions) ---
+        // ===============================
+        // Win32 Constants
+        // ===============================
+
         private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
         private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
         private const int PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016;
-        private const uint ENABLE_ECHO_INPUT = 0x0004;
+        private const uint FILE_FLAG_OVERLAPPED = 0x40000000;
+        private const uint STILL_ACTIVE = 259;
+
+        // ===============================
+        // Structs
+        // ===============================
 
         [StructLayout(LayoutKind.Sequential)]
-        public struct COORD { public short X; public short Y; }
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        struct STARTUPINFOEX {
-            public STARTUPINFO StartupInfo;
-            public IntPtr lpAttributeList;
+        public struct COORD
+        {
+            public short X;
+            public short Y;
         }
 
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        struct STARTUPINFO {
+        [StructLayout(LayoutKind.Sequential)]
+        struct STARTUPINFO
+        {
             public int cb;
-            public string? lpReserved;
-            public string? lpDesktop;
-            public string? lpTitle;
+            public IntPtr lpReserved;
+            public IntPtr lpDesktop;
+            public IntPtr lpTitle;
             public int dwX;
             public int dwY;
             public int dwXSize;
@@ -52,335 +60,221 @@ namespace Moppy.ConPTY
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        struct PROCESS_INFORMATION {
+        struct STARTUPINFOEX
+        {
+            public STARTUPINFO StartupInfo;
+            public IntPtr lpAttributeList;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct PROCESS_INFORMATION
+        {
             public IntPtr hProcess;
             public IntPtr hThread;
             public int dwProcessId;
             public int dwThreadId;
         }
 
-        // --- 2. Win32 Imports ---
+        // ===============================
+        // Win32 Imports
+        // ===============================
+
         [DllImport("kernel32.dll", SetLastError = true)]
-        static extern int CreatePseudoConsole(COORD size, SafeFileHandle hInput, SafeFileHandle hOutput, uint dwFlags, out IntPtr phPC);
+        static extern int CreatePseudoConsole(
+            COORD size,
+            SafeFileHandle hInput,
+            SafeFileHandle hOutput,
+            uint flags,
+            out IntPtr phPC);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern void ClosePseudoConsole(IntPtr hPC);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        static extern bool CreateProcess(string? lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, string? lpEnvironment, string? lpCurrentDirectory, [In] ref STARTUPINFOEX lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool InitializeProcThreadAttributeList(
+            IntPtr lpAttributeList,
+            int dwAttributeCount,
+            uint dwFlags,
+            ref IntPtr lpSize);
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool InitializeProcThreadAttributeList(IntPtr lpAttributeList, int dwAttributeCount, uint dwFlags, ref IntPtr lpSize);
+        static extern bool UpdateProcThreadAttribute(
+            IntPtr lpAttributeList,
+            uint dwFlags,
+            IntPtr attribute,
+            IntPtr lpValue,
+            IntPtr cbSize,
+            IntPtr lpPreviousValue,
+            IntPtr lpReturnSize);
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool UpdateProcThreadAttribute(IntPtr lpAttributeList, uint dwFlags, IntPtr Attribute, IntPtr lpValue, IntPtr cbSize, IntPtr lpPreviousValue, IntPtr lpContext);
+        static extern void DeleteProcThreadAttributeList(
+            IntPtr lpAttributeList);
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool PeekNamedPipe(SafeFileHandle hNamedPipe, IntPtr lpBuffer, uint nBufferSize, IntPtr lpBytesRead, out uint lpTotalBytesAvail, IntPtr lpBytesLeftThisMessage);
-
-        // [DllImport("kernel32.dll", SetLastError = true)]
-        // public static extern IntPtr CreateNamedPipe(string lpName, uint dwOpenMode, uint dwPipeMode, uint nMaxInstances, uint nOutBufferSize, uint nInBufferSize, uint nDefaultTimeOut, IntPtr lpSecurityAttributes);
+        static extern bool CreateProcess(
+            string? lpApplicationName,
+            string lpCommandLine,
+            IntPtr lpProcessAttributes,
+            IntPtr lpThreadAttributes,
+            bool bInheritHandles,
+            uint dwCreationFlags,
+            IntPtr lpEnvironment,
+            string? lpCurrentDirectory,
+            ref STARTUPINFOEX lpStartupInfo,
+            out PROCESS_INFORMATION lpProcessInformation);
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+        static extern bool GetExitCodeProcess(
+            IntPtr hProcess,
+            out uint lpExitCode);
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern void DeleteProcThreadAttributeList(IntPtr lpAttributeList);
+        static extern bool CloseHandle(IntPtr hObject);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern void CloseHandle(IntPtr hObject);
+        // ===============================
+        // Fields
+        // ===============================
 
-        // --- 3. Fields & Properties ---
-        private IntPtr _hPC = IntPtr.Zero;
-        private FileStream? _writer;
-        private FileStream? _reader;
+        private IntPtr _hPC;
+        private IntPtr _hProcess;
 
-        private readonly BlockingCollection<byte[]> _writeQueue = new();
+        private readonly FileStream _stdin;
+        private readonly FileStream _stdout;
 
-        private readonly ConcurrentQueue<byte[]> _readQueue = new();
-        
+        private readonly CancellationTokenSource _cts = new();
+
         public int Pid { get; private set; }
-        public IntPtr _hProcess = IntPtr.Zero;
-        public string Cwd { get; set; } = Directory.GetCurrentDirectory();
-        public Dictionary<string, string> EnvVars { get; set; } = new Dictionary<string, string>();
 
-        private bool _readerFailed = false;
-
+        // ===============================
         // Constructor
-        public ConPTYInstance(SafeFileHandle writeEnd, SafeFileHandle readEnd)
-        {
-            _writer = new FileStream(writeEnd, FileAccess.Write, 4096, isAsync: true);
-            _reader = new FileStream(readEnd, FileAccess.Read, 4096, isAsync: true);
+        // ===============================
 
-            StartWriterThread();
-            StartReaderThread();
+        public ConPTYInstance(
+            SafeFileHandle inputWriteEnd,
+            SafeFileHandle outputReadEnd)
+        {
+            // MUST be overlapped handles
+            _stdin = new FileStream(inputWriteEnd, FileAccess.Write, 0, true);
+            _stdout = new FileStream(outputReadEnd, FileAccess.Read, 0, true);
         }
 
-        // --- 4. Logic Methods ---
+        // ===============================
+        // PTY Creation
+        // ===============================
 
-        private static void SplitCommandLine(string commandLine, out string exePath, out string fullCommandLine)
-        {
-            commandLine = commandLine.Trim();
-
-            if (commandLine.StartsWith("\""))
-            {
-                int end = commandLine.IndexOf('"', 1);
-                if (end < 0)
-                    throw new ArgumentException("Unterminated quote in command line");
-
-                exePath = commandLine.Substring(1, end - 1);
-                string rest = commandLine.Substring(end + 1).TrimStart();
-                fullCommandLine = $"\"{exePath}\" {rest}";
-            }
-            else
-            {
-                int space = commandLine.IndexOf(' ');
-                if (space < 0)
-                {
-                    exePath = commandLine;
-                    fullCommandLine = $"\"{exePath}\"";
-                }
-                else
-                {
-                    exePath = commandLine.Substring(0, space);
-                    string rest = commandLine.Substring(space + 1);
-                    fullCommandLine = $"\"{exePath}\" {rest}";
-                }
-            }
-        }
-
-
-        public void Create(short width, short height, SafeFileHandle ptyInputRead, SafeFileHandle ptyOutputWrite, uint flags = 0)
+        public void Create(short width, short height,
+                           SafeFileHandle inputReadEnd,
+                           SafeFileHandle outputWriteEnd)
         {
             var size = new COORD { X = width, Y = height };
-            int res = CreatePseudoConsole(size, ptyInputRead, ptyOutputWrite, flags, out _hPC);
-            if (res != 0) throw new Exception("ConPTY Creation Failed");
+
+            int hr = CreatePseudoConsole(
+                size,
+                inputReadEnd,
+                outputWriteEnd,
+                0,
+                out _hPC);
+
+            if (hr != 0)
+                throw new InvalidOperationException($"CreatePseudoConsole failed: {hr}");
         }
 
-        public void Start(string commandLine, string cwd, Dictionary<string, string>? envVars = null)
+        // ===============================
+        // Process Start
+        // ===============================
+
+        public void Start(string commandLine, string cwd)
         {
             var si = new STARTUPINFOEX();
             si.StartupInfo.cb = Marshal.SizeOf<STARTUPINFOEX>();
 
-            // Init attribute list
-            IntPtr lpSize = IntPtr.Zero;
-            IntPtr hPCValue = Marshal.AllocHGlobal(IntPtr.Size);
-            Marshal.WriteIntPtr(hPCValue, _hPC);
-            InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref lpSize);
-            si.lpAttributeList = Marshal.AllocHGlobal(lpSize);
+            IntPtr size = IntPtr.Zero;
+            InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size);
 
-            if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, ref lpSize))
-                throw new Exception($"InitializeProcThreadAttributeList failed: {Marshal.GetLastWin32Error()}");
+            si.lpAttributeList = Marshal.AllocHGlobal(size);
+
+            if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, ref size))
+                throw new InvalidOperationException("Init attr list failed");
+
+            IntPtr pConsole = Marshal.AllocHGlobal(IntPtr.Size);
+            Marshal.WriteIntPtr(pConsole, _hPC);
 
             if (!UpdateProcThreadAttribute(
-                    si.lpAttributeList,
-                    0,
-                    (IntPtr)PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-                    hPCValue,
-                    IntPtr.Size,
-                    IntPtr.Zero,
-                    IntPtr.Zero))
-            {
-                throw new Exception($"UpdateProcThreadAttribute failed: {Marshal.GetLastWin32Error()}");
-            }
+                si.lpAttributeList,
+                0,
+                (IntPtr)PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+                pConsole,
+                IntPtr.Size,
+                IntPtr.Zero,
+                IntPtr.Zero))
+                throw new InvalidOperationException("Update attr failed");
 
-            var pi = new PROCESS_INFORMATION();
-
-            // --------------------------------------------------
-            // Build environment block (from parameter)
-            // --------------------------------------------------
-            string? env = null;
-            if (envVars != null && envVars.Count > 0)
-            {
-                var sb = new StringBuilder();
-                foreach (var kvp in envVars)
-                {
-                    sb.Append(kvp.Key);
-                    sb.Append('=');
-                    sb.Append(kvp.Value);
-                    sb.Append('\0');
-                }
-                sb.Append('\0'); // double-null terminate
-                env = sb.ToString();
-            }
-
-            // --------------------------------------------------
-            // Extract exe path + full command line
-            // --------------------------------------------------
-            string exePath;
-            string fullCmd;
-
-            commandLine = commandLine.Trim();
-
-            if (commandLine.StartsWith("\""))
-            {
-                int end = commandLine.IndexOf('"', 1);
-                if (end == -1)
-                    throw new ArgumentException("Invalid quoted command line");
-
-                exePath = commandLine.Substring(1, end - 1);
-                fullCmd = commandLine;
-            }
-            else
-            {
-                int firstSpace = commandLine.IndexOf(' ');
-                if (firstSpace == -1)
-                {
-                    exePath = commandLine;
-                    fullCmd = commandLine;
-                }
-                else
-                {
-                    exePath = commandLine.Substring(0, firstSpace);
-                    fullCmd = commandLine;
-                }
-            }
-
-            if (!File.Exists(exePath))
-                throw new FileNotFoundException($"Executable not found: {exePath}");
-
-            // --------------------------------------------------
-            // Create process
-            // --------------------------------------------------
-            bool ok = CreateProcess(
-                exePath,   // lpApplicationName (EXPLICIT)
-                fullCmd,   // lpCommandLine (FULL STRING)
+            if (!CreateProcess(
+                null,
+                commandLine,
                 IntPtr.Zero,
                 IntPtr.Zero,
                 false,
                 EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
-                env,       // environment block from parameter
+                IntPtr.Zero,
                 cwd,
                 ref si,
-                out pi
-            );
+                out var pi))
+                throw new InvalidOperationException(
+                    $"CreateProcess failed: {Marshal.GetLastWin32Error()}");
 
-
-            if (!ok)
-            {
-                int err = Marshal.GetLastWin32Error();
-                throw new Exception(
-                    $"CreateProcess Failed: {err}\n" +
-                    $"exePath = '{exePath}'\n" +
-                    $"fullCmd = '{fullCmd}'\n" +
-                    $"Cwd = '{Cwd}'"
-                );
-            }
-
-            this.Pid = pi.dwProcessId;
-            this._hProcess = pi.hProcess;
+            Pid = pi.dwProcessId;
+            _hProcess = pi.hProcess;
 
             CloseHandle(pi.hThread);
-
             DeleteProcThreadAttributeList(si.lpAttributeList);
             Marshal.FreeHGlobal(si.lpAttributeList);
-            Marshal.FreeHGlobal(hPCValue);
+            Marshal.FreeHGlobal(pConsole);
         }
 
-        private void StartWriterThread()
+        // ===============================
+        // Async IO
+        // ===============================
+
+        public ValueTask WriteAsync(
+            ReadOnlyMemory<byte> data,
+            CancellationToken token = default)
         {
-            var t = new Thread(() =>
-            {
-                foreach (var data in _writeQueue.GetConsumingEnumerable())
-                {
-                    try
-                    {
-                        _writer!.Write(data, 0, data.Length);
-                        _writer.Flush();
-                    }
-                    catch { break; }
-                }
-            });
-            t.IsBackground = true;
-            t.Start();
+            return _stdin.WriteAsync(data, token);
         }
 
-        private void StartReaderThread()
+        public ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken token = default)
         {
-            var t = new Thread(() =>
-            {
-                var buf = new byte[8192];
-                while (true)
-                {
-                    try
-                    {
-                        int n = _reader!.Read(buf, 0, buf.Length);
-                        if (n <= 0) break;
-
-                        var chunk = new byte[n];
-                        Buffer.BlockCopy(buf, 0, chunk, 0, n);
-                        _readQueue.Enqueue(chunk);
-                    }
-                    catch (Exception)
-                    {
-                        _readerFailed = true;
-                        break;
-                    }
-                }
-            });
-            t.IsBackground = true;
-            t.Start();
-        }
-
-        public void Write(byte[] data)
-        {
-            if (_readerFailed)
-                throw new IOException("ConPTY reader failed; output pipe is no longer draining.");
-
-            _writeQueue.Add(data);
-        }
-
-        public byte[] Read()
-        {
-            if (_readQueue.TryDequeue(out var data))
-                return data;
-
-            return Array.Empty<byte>();
-        }
-
-        public void Dispose()
-        {
-            try
-            {
-                // Suppress errors during flush/close if the pipe is already broken
-                if (_hPC != IntPtr.Zero)
-                {
-                    ClosePseudoConsole(_hPC);
-                    _hPC = IntPtr.Zero;
-                }
-
-                _writeQueue.CompleteAdding();
-                _writer?.Dispose();
-                _reader?.Dispose();
-
-                if (_hProcess != IntPtr.Zero)
-                {
-                    CloseHandle(_hProcess);
-                    _hProcess = IntPtr.Zero;
-                }
-            }
-            catch (Exception) { /* Ignore pipe errors during cleanup */ }
-
-        }
-
-        public uint ExitCode()
-        {
-            if (_hProcess == IntPtr.Zero) throw new Exception("ConPTY not initialized.");
-
-            if (GetExitCodeProcess(_hProcess, out uint exitCode))
-            {
-                return exitCode;
-            }
-            else
-            {
-                throw new Exception($"GetExitCodeProcess Failed: {Marshal.GetLastWin32Error()}");
-            }
+            return _stdout.ReadAsync(buffer, token);
         }
 
         public bool IsAlive()
         {
-            uint exitCode = ExitCode();
-            return exitCode == 259; // STILL_ACTIVE
+            if (GetExitCodeProcess(_hProcess, out uint code))
+                return code == STILL_ACTIVE;
+
+            return false;
+        }
+
+        // ===============================
+        // Cleanup
+        // ===============================
+
+        public async ValueTask DisposeAsync()
+        {
+            _cts.Cancel();
+
+            await _stdin.DisposeAsync();
+            await _stdout.DisposeAsync();
+
+            if (_hPC != IntPtr.Zero)
+                ClosePseudoConsole(_hPC);
+
+            if (_hProcess != IntPtr.Zero)
+                CloseHandle(_hProcess);
         }
     }
 }
