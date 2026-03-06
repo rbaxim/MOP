@@ -27,8 +27,8 @@ authors = [
 
 dependencies = [
     # Core Server & Web
-    "fastapi==0.129.0",
-    "uvicorn==0.40.0",
+    "fastapi==0.135.1",
+    "uvicorn==0.41.0",
     "hypercorn==0.18.0",
     "starlette==0.52.1",
     "slowapi==0.1.9",
@@ -37,7 +37,7 @@ dependencies = [
     "aiohttp==3.13.3",
     "aiofiles==25.1.0",
     "aiohappyeyeballs==2.6.1",
-    "certifi==2026.1.4",
+    "certifi==2026.2.25",
 
     # System & Utils
     "psutil==7.2.2",
@@ -45,7 +45,7 @@ dependencies = [
     
     # Compression & Encryption
     "cryptography==46.0.5",
-    "brotlicffi==1.2.0.0",
+    "brotlicffi==1.2.0.1",
     "brotli==1.2.0",
     "brotli-asgi==1.6.0",
     "base91==1.0.1",
