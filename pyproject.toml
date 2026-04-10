@@ -27,25 +27,25 @@ authors = [
 
 dependencies = [
     # Core Server & Web
-    "fastapi==0.129.0",
-    "uvicorn==0.40.0",
+    "fastapi==0.135.3",
+    "uvicorn==0.44.0",
     "hypercorn==0.18.0",
-    "starlette==0.52.1",
+    "starlette==1.0.0",
     "slowapi==0.1.9",
 
     # Networking & Async IO
-    "aiohttp==3.13.3",
+    "aiohttp==3.13.5",
     "aiofiles==25.1.0",
     "aiohappyeyeballs==2.6.1",
-    "certifi==2026.1.4",
+    "certifi==2026.2.25",
 
     # System & Utils
     "psutil==7.2.2",
     "colorama==0.4.6",
     
     # Compression & Encryption
-    "cryptography==46.0.5",
-    "brotlicffi==1.2.0.0",
+    "cryptography==46.0.7",
+    "brotlicffi==1.2.0.1",
     "brotli==1.2.0",
     "brotli-asgi==1.6.0",
     "base91==1.0.1",
@@ -58,8 +58,8 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=1.14.0",
-    "ruff>=0.15.1",
-    "types-aiofiles==25.1.0.20251011",
+    "ruff>=0.9.0",
+    "types-aiofiles==25.1.0.20260409",
     "types-Deprecated==1.3.1.20260130",
     "bandit[sarif, toml]>=1.9.3",
     "semgrep>=1.151.0"
@@ -67,7 +67,7 @@ dev = [
 dev-pypy = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
-    "types-aiofiles==25.1.0.20251011",
+    "types-aiofiles==25.1.0.20260409",
     "types-Deprecated==1.3.1.20260130",
     "bandit[sarif, toml]>=1.9.3", # PyPy can't build semgrep because of yaml
 ]
@@ -81,15 +81,15 @@ unix = [
 [project.optional-dependencies]
 dev = [
     "mypy>=1.14.0",
-    "ruff>=0.15.1",
-    "types-aiofiles==25.1.0.20251011",
+    "ruff>=0.9.0",
+    "types-aiofiles==25.1.0.20260409",
     "bandit[sarif, toml]>=1.9.3",
     "semgrep>=1.151.0"
 ]
 dev-pypy = [
     "mypy>=1.14.0",
     "ruff>=0.9.0",
-    "types-aiofiles==25.1.0.20251011",
+    "types-aiofiles==25.1.0.20260409",
     "types-Deprecated==1.3.1.20260130",
     "bandit[sarif, toml]>=1.9.3", # PyPy can't build semgrep because of yaml
 ]
