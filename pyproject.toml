@@ -34,7 +34,7 @@ dependencies = [
     "slowapi==0.1.9",
 
     # Networking & Async IO
-    "aiohttp==3.13.3",
+    "aiohttp==3.13.4",
     "aiofiles==25.1.0",
     "aiohappyeyeballs==2.6.1",
     "certifi==2026.1.4",
