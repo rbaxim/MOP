@@ -37,7 +37,7 @@ dependencies = [
     "aiohttp==3.13.3",
     "aiofiles==25.1.0",
     "aiohappyeyeballs==2.6.1",
-    "certifi==2026.1.4",
+    "certifi==2026.10.19",
 
     # System & Utils
     "psutil==7.2.2",
