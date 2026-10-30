@@ -45,7 +45,7 @@ dependencies = [
     
     # Compression & Encryption
     "cryptography==46.0.5",
-    "brotlicffi==1.2.0.0",
+    "brotlicffi==1.2.1.0",
     "brotli==1.2.0",
     "brotli-asgi==1.6.0",
     "base91==1.0.1",
